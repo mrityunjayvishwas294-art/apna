@@ -1,0 +1,6 @@
+{
+  "name": "अपना मार्केट",
+  "description": "रायगढ़ ➔ पुंजीपथरा · सुपरफास्ट होम डिलीवरी - 100% सुरक्षित एवं विश्वसनीय सेवा by मृत्युंजय विश्वास (MV)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

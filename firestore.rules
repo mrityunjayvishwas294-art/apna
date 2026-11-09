@@ -1,0 +1,231 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // Helper Functions
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'mrityunjayvishwas294@gmail.com' &&
+         request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isNonEmptyString(val, maxLen) {
+      return val is string && val.size() >= 1 && val.size() <= maxLen;
+    }
+
+    function isOptionalString(data, key, maxLen) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    // =========================================================================
+    // Domain Validators
+    // =========================================================================
+
+    function isValidStoreConfig(data) {
+      return isNonEmptyString(data.shopName, 120) &&
+             isOptionalString(data, 'tagline', 200) &&
+             isOptionalString(data, 'founderName', 100) &&
+             isOptionalString(data, 'founderInitials', 10) &&
+             isOptionalString(data, 'founderHead', 200) &&
+             isOptionalString(data, 'founderMsg', 2000) &&
+             isOptionalString(data, 'whatsapp', 30) &&
+             isOptionalString(data, 'upiId', 120) &&
+             isOptionalString(data, 'upiName', 100) &&
+             data.deliveryFee is number && data.deliveryFee >= 0 && data.deliveryFee <= 5000 &&
+             (!('heavyDeliveryFee' in data) || (data.heavyDeliveryFee is number && data.heavyDeliveryFee >= 0 && data.heavyDeliveryFee <= 5000)) &&
+             (!('advanceThreshold' in data) || (data.advanceThreshold is number && data.advanceThreshold >= 0 && data.advanceThreshold <= 100000)) &&
+             isOptionalString(data, 'adminPin', 20) &&
+             isOptionalString(data, 'storeOwnerEmail', 150) &&
+             isOptionalString(data, 'routeCorridor', 200) &&
+             isOptionalString(data, 'deliveryTiming', 150) &&
+             isOptionalString(data, 'cutoffHourText', 150) &&
+             isOptionalString(data, 'deliveryScheduleDays', 150) &&
+             (!('launchDaysRemaining' in data) || (data.launchDaysRemaining is int && data.launchDaysRemaining >= 0 && data.launchDaysRemaining <= 365)) &&
+             isOptionalString(data, 'launchDateText', 200) &&
+             isOptionalString(data, 'announcementText', 1000) &&
+             data.isAcceptingOrders is bool &&
+             (!('isFestivalSaleActive' in data) || data.isFestivalSaleActive is bool) &&
+             isOptionalString(data, 'festivalSaleHeading', 200) &&
+             isOptionalString(data, 'festivalSaleSubtitle', 300) &&
+             isOptionalString(data, 'festivalDiscountBadge', 80) &&
+             isOptionalString(data, 'welcomeMessage', 1500);
+    }
+
+    function isValidProduct(data) {
+      return isNonEmptyString(data.id, 128) &&
+             isNonEmptyString(data.name, 200) &&
+             isOptionalString(data, 'hindiName', 200) &&
+             isNonEmptyString(data.category, 60) &&
+             isNonEmptyString(data.unit, 50) &&
+             data.mrp is number && data.mrp >= 0 && data.mrp <= 1000000 &&
+             data.ourPrice is number && data.ourPrice >= 0 && data.ourPrice <= 1000000 &&
+             data.inStock is bool &&
+             isOptionalString(data, 'tag', 80) &&
+             isOptionalString(data, 'emoji', 20) &&
+             isOptionalString(data, 'imageUrl', 500000) &&
+             isOptionalString(data, 'description', 1500) &&
+             (!('isHeavy' in data) || data.isHeavy is bool) &&
+             (!('variants' in data) || (data.variants is list && data.variants.size() <= 20));
+    }
+
+    function isValidBanner(data) {
+      return isNonEmptyString(data.id, 128) &&
+             isNonEmptyString(data.title, 200) &&
+             isNonEmptyString(data.subtitle, 400) &&
+             isOptionalString(data, 'badge', 80) &&
+             isOptionalString(data, 'discountTag', 80) &&
+             (!('isFestivalSpecial' in data) || data.isFestivalSpecial is bool) &&
+             data.isActive is bool &&
+             isOptionalString(data, 'mediaUrl', 500000);
+    }
+
+    function isValidOrderStatus(status) {
+      return status in [
+        'RECEIVED',
+        'MANDI_PROCUREMENT',
+        'PACKED',
+        'OUT_FOR_8AM',
+        'DELIVERED',
+        'CANCELLED'
+      ];
+    }
+
+    function isValidOrder(data) {
+      return isNonEmptyString(data.id, 128) &&
+             isNonEmptyString(data.userId, 128) &&
+             isNonEmptyString(data.customerName, 120) &&
+             isNonEmptyString(data.customerPhone, 30) &&
+             isOptionalString(data, 'customerEmail', 150) &&
+             isNonEmptyString(data.area, 150) &&
+             isOptionalString(data, 'addressDetail', 500) &&
+             data.items is list && data.items.size() >= 1 && data.items.size() <= 100 &&
+             data.subtotal is number && data.subtotal >= 0 &&
+             (!('totalSavings' in data) || (data.totalSavings is number && data.totalSavings >= 0)) &&
+             (!('deliveryCharge' in data) || (data.deliveryCharge is number && data.deliveryCharge >= 0)) &&
+             (!('heavyDeliveryCharge' in data) || (data.heavyDeliveryCharge is number && data.heavyDeliveryCharge >= 0)) &&
+             data.grandTotal is number && data.grandTotal >= 0 && data.grandTotal <= 1000000 &&
+             (!('advancePaid' in data) || (data.advancePaid is number && data.advancePaid >= 0)) &&
+             (!('balanceDueAtDelivery' in data) || (data.balanceDueAtDelivery is number && data.balanceDueAtDelivery >= 0)) &&
+             isOptionalString(data, 'paymentMethod', 150) &&
+             isOptionalString(data, 'upiTransactionRef', 150) &&
+             isOptionalString(data, 'deliveryDate', 150) &&
+             isValidOrderStatus(data.status) &&
+             isOptionalString(data, 'specialNote', 1000) &&
+             (!('rating' in data) || (data.rating is int && data.rating >= 0 && data.rating <= 5)) &&
+             isOptionalString(data, 'ratingReview', 1000) &&
+             (!('deliveryTip' in data) || (data.deliveryTip is number && data.deliveryTip >= 0 && data.deliveryTip <= 50000));
+    }
+
+    function isValidOrderRating(data) {
+      return data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+             isOptionalString(data, 'ratingReview', 1000) &&
+             data.deliveryTip is number && data.deliveryTip >= 0 && data.deliveryTip <= 50000;
+    }
+
+    function isValidCustomRequest(data) {
+      return isNonEmptyString(data.id, 128) &&
+             isNonEmptyString(data.userId, 128) &&
+             isNonEmptyString(data.customerName, 120) &&
+             isNonEmptyString(data.customerPhone, 30) &&
+             isOptionalString(data, 'customerEmail', 150) &&
+             isNonEmptyString(data.itemName, 200) &&
+             isNonEmptyString(data.quantity, 100) &&
+             isOptionalString(data, 'notes', 1000) &&
+             isOptionalString(data, 'targetArea', 150) &&
+             isNonEmptyString(data.status, 200);
+    }
+
+    // =========================================================================
+    // Collections
+    // =========================================================================
+
+    match /admins/{adminId} {
+      allow get: if isOwner(adminId) || isAdmin();
+      allow list, create, update, delete: if false;
+    }
+
+    match /store_config/{configId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isAdmin() && isValidId(configId) && isValidStoreConfig(incoming());
+      allow delete: if false;
+    }
+
+    match /products/{productId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isAdmin() && isValidId(productId) && isValidProduct(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /banners/{bannerId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isAdmin() && isValidId(bannerId) && isValidBanner(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow get, list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() &&
+                    isValidId(orderId) &&
+                    incoming().userId == request.auth.uid &&
+                    incoming().createdAt is timestamp &&
+                    incoming().createdAt <= request.time &&
+                    incoming().status == 'RECEIVED' &&
+                    isValidOrder(incoming());
+      allow update: if isSignedIn() && (
+        (existing().userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'ratingReview', 'deliveryTip', 'updatedAt']) &&
+         isValidOrderRating(incoming())) ||
+        (isAdmin() &&
+         incoming().userId == existing().userId &&
+         incoming().createdAt == existing().createdAt &&
+         isValidOrder(incoming()))
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /custom_requests/{requestId} {
+      allow get, list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() &&
+                    isValidId(requestId) &&
+                    incoming().userId == request.auth.uid &&
+                    incoming().createdAt is timestamp &&
+                    incoming().createdAt <= request.time &&
+                    isValidCustomRequest(incoming());
+      allow update: if isAdmin() &&
+                    incoming().userId == existing().userId &&
+                    incoming().createdAt == existing().createdAt &&
+                    isValidCustomRequest(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

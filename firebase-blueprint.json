@@ -1,0 +1,162 @@
+{
+  "entities": {
+    "StoreConfig": {
+      "title": "StoreConfig",
+      "description": "Global store settings, delivery schedule, UPI/WhatsApp contact, festival sale banner controls, and welcome message.",
+      "type": "object",
+      "properties": {
+        "shopName": { "type": "string" },
+        "tagline": { "type": "string" },
+        "founderName": { "type": "string" },
+        "founderInitials": { "type": "string" },
+        "founderHead": { "type": "string" },
+        "founderMsg": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "upiId": { "type": "string" },
+        "upiName": { "type": "string" },
+        "deliveryFee": { "type": "number" },
+        "heavyDeliveryFee": { "type": "number" },
+        "advanceThreshold": { "type": "number" },
+        "adminPin": { "type": "string" },
+        "storeOwnerEmail": { "type": "string" },
+        "routeCorridor": { "type": "string" },
+        "deliveryTiming": { "type": "string" },
+        "cutoffHourText": { "type": "string" },
+        "deliveryScheduleDays": { "type": "string" },
+        "launchDaysRemaining": { "type": "integer" },
+        "launchDateText": { "type": "string" },
+        "announcementText": { "type": "string" },
+        "isAcceptingOrders": { "type": "boolean" },
+        "isFestivalSaleActive": { "type": "boolean" },
+        "festivalSaleHeading": { "type": "string" },
+        "festivalSaleSubtitle": { "type": "string" },
+        "festivalDiscountBadge": { "type": "string" },
+        "welcomeMessage": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopName", "deliveryFee", "isAcceptingOrders"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Catalog product with optional multi-size weight/volume variants (e.g., 500 gm, 700 gm, 1 kg, ml) and image/GIF URL.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "hindiName": { "type": "string" },
+        "category": { "type": "string" },
+        "unit": { "type": "string" },
+        "mrp": { "type": "number" },
+        "ourPrice": { "type": "number" },
+        "inStock": { "type": "boolean" },
+        "tag": { "type": "string" },
+        "emoji": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "description": { "type": "string" },
+        "isHeavy": { "type": "boolean" },
+        "variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string" },
+              "mrp": { "type": "number" },
+              "ourPrice": { "type": "number" }
+            },
+            "required": ["label", "mrp", "ourPrice"]
+          }
+        }
+      },
+      "required": ["id", "name", "category", "unit", "mrp", "ourPrice", "inStock"]
+    },
+    "BannerAd": {
+      "title": "BannerAd",
+      "description": "Promotional carousel banner or festival offer card with optional GIF/image mediaUrl.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "badge": { "type": "string" },
+        "discountTag": { "type": "string" },
+        "isFestivalSpecial": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "mediaUrl": { "type": "string" }
+      },
+      "required": ["id", "title", "subtitle", "isActive"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer order containing PII (phone, address) isolated to the owning customer and store admin.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "area": { "type": "string" },
+        "addressDetail": { "type": "string" },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "totalSavings": { "type": "number" },
+        "deliveryCharge": { "type": "number" },
+        "heavyDeliveryCharge": { "type": "number" },
+        "grandTotal": { "type": "number" },
+        "advancePaid": { "type": "number" },
+        "balanceDueAtDelivery": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "upiTransactionRef": { "type": "string" },
+        "deliveryDate": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string" },
+        "specialNote": { "type": "string" },
+        "rating": { "type": "integer" },
+        "ratingReview": { "type": "string" },
+        "deliveryTip": { "type": "number" }
+      },
+      "required": ["id", "userId", "customerName", "customerPhone", "area", "items", "grandTotal", "status", "createdAt"]
+    },
+    "CustomItemRequest": {
+      "title": "CustomItemRequest",
+      "description": "Customer request for special items not in catalog, isolated to owning customer and store admin.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "itemName": { "type": "string" },
+        "quantity": { "type": "string" },
+        "notes": { "type": "string" },
+        "targetArea": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "userId", "customerName", "customerPhone", "itemName", "quantity", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/store_config/{configId}": {
+      "schema": { "$ref": "#/entities/StoreConfig" },
+      "description": "Global store configuration (single doc 'main'). Readable by signed-in users, writable only by store admin."
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Store catalog products. Readable by signed-in users, writable only by store admin."
+    },
+    "/banners/{bannerId}": {
+      "schema": { "$ref": "#/entities/BannerAd" },
+      "description": "Promotional banners. Readable by signed-in users, writable only by store admin."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Customer orders. Strictly isolated: customers read/create/rate only their own orders (userId == auth.uid); admin reads/updates all."
+    },
+    "/custom_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/CustomItemRequest" },
+      "description": "Custom item requests. Strictly isolated: customers read/create only their own; admin reads/updates all."
+    }
+  }
+}
