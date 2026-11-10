@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -32,6 +33,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +56,8 @@ import coil.Coil
 import coil.ImageLoader
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 import com.example.ui.Screen
 import com.example.ui.StoreViewModel
 import com.example.ui.screens.AdminHubScreen
@@ -80,6 +84,18 @@ class MainActivity : ComponentActivity() {
           add(GifDecoder.Factory())
         }
       }
+      .memoryCache {
+        MemoryCache.Builder(applicationContext)
+          .maxSizePercent(0.25)
+          .build()
+      }
+      .diskCache {
+        DiskCache.Builder()
+          .directory(applicationContext.cacheDir.resolve("image_cache"))
+          .maxSizeBytes(50L * 1024 * 1024)
+          .build()
+      }
+      .respectCacheHeaders(false)
       .build()
     Coil.setImageLoader(gifImageLoader)
 
@@ -101,6 +117,7 @@ fun EightAmMartApp(viewModel: StoreViewModel = viewModel()) {
   val currentUser by viewModel.currentUser.collectAsState()
   val currentScreen by viewModel.currentScreen.collectAsState()
   val storeConfig by viewModel.storeConfig.collectAsState()
+  val selectedLanguage by viewModel.selectedLanguage.collectAsState()
   var showWelcomeOverlay by remember { mutableStateOf(true) }
   var progress by remember { mutableFloatStateOf(1f) }
 
@@ -127,8 +144,13 @@ fun EightAmMartApp(viewModel: StoreViewModel = viewModel()) {
     return
   }
 
+  CompositionLocalProvider(com.example.data.LocalAppLanguage provides selectedLanguage) {
   Box(modifier = Modifier.fillMaxSize()) {
-    Crossfade(targetState = currentScreen, label = "ScreenTransition") { screen ->
+    Crossfade(
+      targetState = currentScreen,
+      animationSpec = tween(durationMillis = 150),
+      label = "ScreenTransition"
+    ) { screen ->
       when (screen) {
         Screen.HOME -> HomeScreen(viewModel = viewModel)
         Screen.CART -> CartScreen(viewModel = viewModel)
@@ -246,5 +268,6 @@ fun EightAmMartApp(viewModel: StoreViewModel = viewModel()) {
         }
       }
     }
+  }
   }
 }

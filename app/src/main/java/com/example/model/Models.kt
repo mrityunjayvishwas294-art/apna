@@ -72,7 +72,9 @@ data class CorridorArea(
   val name: String,
   val hindiName: String,
   val landmarkHint: String,
-  val estimatedArrival: String = "8:00 AM"
+  val estimatedArrival: String = "8:00 AM",
+  val latitude: Double = 0.0,
+  val longitude: Double = 0.0
 )
 
 data class Order(
@@ -101,7 +103,25 @@ data class Order(
   val isMyOrder: Boolean = true,
   val rating: Int = 0,
   val ratingReview: String = "",
-  val deliveryTip: Double = 0.0
+  val deliveryTip: Double = 0.0,
+  val assignedRiderId: String = "",
+  val assignedRiderName: String = "",
+  val assignedRiderPhone: String = "",
+  val collectedPaymentMode: String = "",
+  val isRiderCashSettled: Boolean = false,
+  val customerLat: Double = 0.0,
+  val customerLng: Double = 0.0
+)
+
+data class Rider(
+  val id: String,
+  val name: String,
+  val phone: String,
+  val email: String = "",
+  val area: String = "रायगढ़ ➔ पुंजीपथरा",
+  val vehicleType: String = "Bike",
+  val isActive: Boolean = true,
+  val createdAt: Long = System.currentTimeMillis()
 )
 
 data class CustomItemRequest(

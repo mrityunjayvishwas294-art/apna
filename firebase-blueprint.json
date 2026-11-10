@@ -135,6 +135,22 @@
         "status": { "type": "string" }
       },
       "required": ["id", "userId", "customerName", "customerPhone", "itemName", "quantity", "status", "createdAt"]
+    },
+    "Rider": {
+      "title": "Rider",
+      "description": "Hired delivery rider managed by the store admin.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "area": { "type": "string" },
+        "vehicleType": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "integer" }
+      },
+      "required": ["id", "name", "phone", "isActive"]
     }
   },
   "firestore": {
@@ -157,6 +173,10 @@
     "/custom_requests/{requestId}": {
       "schema": { "$ref": "#/entities/CustomItemRequest" },
       "description": "Custom item requests. Strictly isolated: customers read/create only their own; admin reads/updates all."
+    },
+    "/riders/{riderId}": {
+      "schema": { "$ref": "#/entities/Rider" },
+      "description": "Hired delivery riders. Readable and writable only by store admin."
     }
   }
 }

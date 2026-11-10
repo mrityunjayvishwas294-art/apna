@@ -1,13 +1,18 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,7 +30,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.util.Base64
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
@@ -48,6 +55,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -66,9 +74,33 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.Manifest
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.size.Precision
+import com.example.data.AppLanguage
 import com.example.data.DefaultProducts
+import com.example.data.LocalAppLanguage
+import com.example.data.fetchCurrentLocationAddress
+import com.example.data.hasLocationPermission
+import com.example.data.localizedName
+import com.example.data.localizedTitle
+import com.example.data.s
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.example.model.BannerAd
 import com.example.model.CartItem
 import com.example.model.CorridorArea
@@ -88,6 +120,22 @@ import com.example.ui.theme.SecondaryAmber
 import com.example.ui.theme.SecondaryGold
 import com.example.ui.theme.TertiaryRed
 
+@Composable
+fun rememberCoilData(url: String): Any {
+  return remember(url) {
+    if (url.startsWith("data:image") && url.contains("base64,")) {
+      try {
+        val base64Part = url.substringAfter("base64,")
+        Base64.decode(base64Part, Base64.DEFAULT)
+      } catch (_: Exception) {
+        url
+      }
+    } else {
+      url
+    }
+  }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TopCorridorHeader(
@@ -100,8 +148,11 @@ fun TopCorridorHeader(
   onOpenOrders: () -> Unit,
   onSecretAdminTrigger: () -> Unit,
   onOpenCart: () -> Unit,
+  onSignOut: () -> Unit = {},
+  onOpenLanguage: () -> Unit = {},
   modifier: Modifier = Modifier
 ) {
+  val lang = LocalAppLanguage.current
   Surface(
     color = MyntraDark,
     contentColor = Color.White,
@@ -160,26 +211,47 @@ fun TopCorridorHeader(
           )
         }
 
-        // WhatsApp Shortcut Button
-        Surface(
-          color = Color(0xFF25D366),
-          shape = RoundedCornerShape(20.dp),
-          modifier = Modifier
-            .clickable { onOpenWhatsApp() }
-            .testTag("header_whatsapp_button")
+        // Language Pill + WhatsApp Shortcut
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-          Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically
+          Surface(
+            color = Color.White.copy(alpha = 0.16f),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+              .clickable { onOpenLanguage() }
+              .testTag("header_language_button")
           ) {
-            Text("💬", fontSize = 12.sp)
-            Spacer(modifier = Modifier.width(4.dp))
             Text(
-              text = "WhatsApp",
+              text = "🌐 ${lang.shortLabel}",
               fontSize = 11.sp,
               fontWeight = FontWeight.Bold,
-              color = Color.White
+              color = Color.White,
+              modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
             )
+          }
+
+          Surface(
+            color = Color(0xFF25D366),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+              .clickable { onOpenWhatsApp() }
+              .testTag("header_whatsapp_button")
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Text("💬", fontSize = 12.sp)
+              Spacer(modifier = Modifier.width(4.dp))
+              Text(
+                text = "WhatsApp",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+              )
+            }
           }
         }
       }
@@ -211,7 +283,7 @@ fun TopCorridorHeader(
           Spacer(modifier = Modifier.width(6.dp))
           Column {
             Text(
-              text = "डिलीवरी: ${storeConfig.deliveryTiming}",
+              text = "${s(lang, "डिलीवरी", "Delivery", "ডেলিভারি")}: ${storeConfig.deliveryTiming}",
               fontSize = 9.sp,
               color = Color.White.copy(alpha = 0.85f)
             )
@@ -284,6 +356,18 @@ fun TopCorridorHeader(
                 modifier = Modifier.size(22.dp)
               )
             }
+          }
+
+          IconButton(
+            onClick = onSignOut,
+            modifier = Modifier.size(36.dp).testTag("header_logout_button")
+          ) {
+            Icon(
+              imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+              contentDescription = "Sign Out",
+              tint = Color.White,
+              modifier = Modifier.size(20.dp)
+            )
           }
         }
       }
@@ -523,43 +607,73 @@ fun FestivalSaleOfferBanner(
   }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ActiveBannersList(
   banners: List<BannerAd>,
   modifier: Modifier = Modifier
 ) {
-  val activeList = banners.filter { it.isActive }
+  val activeList = remember(banners) { banners.filter { it.isActive } }
   if (activeList.isEmpty()) return
 
   val context = LocalContext.current
+  val pagerState = rememberPagerState(pageCount = { activeList.size })
+
+  // Smooth Blinkit/Myntra-style auto-swipe (pauses while user drags)
+  LaunchedEffect(activeList.size, pagerState.isScrollInProgress) {
+    if (activeList.size > 1 && !pagerState.isScrollInProgress) {
+      while (true) {
+        delay(3500L)
+        val next = (pagerState.currentPage + 1) % activeList.size
+        pagerState.animateScrollToPage(
+          page = next,
+          animationSpec = tween(durationMillis = 550, easing = FastOutSlowInEasing)
+        )
+      }
+    }
+  }
+
   Column(
     modifier = modifier
       .fillMaxWidth()
-      .padding(horizontal = 14.dp, vertical = 2.dp),
-    verticalArrangement = Arrangement.spacedBy(8.dp)
+      .padding(vertical = 2.dp),
+    horizontalAlignment = Alignment.CenterHorizontally
   ) {
-    activeList.forEach { banner ->
+    HorizontalPager(
+      state = pagerState,
+      contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp),
+      pageSpacing = 10.dp,
+      modifier = Modifier.fillMaxWidth()
+    ) { page ->
+      val banner = activeList[page]
       Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
           containerColor = if (banner.isFestivalSpecial) Color(0xFFFFF7ED) else Color(0xFFF0FDF4)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier.fillMaxWidth()
       ) {
         Column(modifier = Modifier.fillMaxWidth()) {
           if (!banner.mediaUrl.isNullOrBlank()) {
+            val bannerModel = rememberCoilData(banner.mediaUrl)
+            val bannerRequest = remember(bannerModel) {
+              ImageRequest.Builder(context)
+                .data(bannerModel)
+                .size(720, 320)
+                .precision(Precision.INEXACT)
+                .crossfade(120)
+                .build()
+            }
             AsyncImage(
-              model = ImageRequest.Builder(context)
-                .data(banner.mediaUrl)
-                .crossfade(true)
-                .build(),
+              model = bannerRequest,
               contentDescription = banner.title,
               contentScale = ContentScale.Crop,
               modifier = Modifier
                 .fillMaxWidth()
-                .height(120.dp)
-                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                .height(124.dp)
+                .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
             )
           }
           Row(
@@ -610,6 +724,25 @@ fun ActiveBannersList(
               )
             }
           }
+        }
+      }
+    }
+
+    if (activeList.size > 1) {
+      Spacer(modifier = Modifier.height(6.dp))
+      Row(
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        repeat(activeList.size) { index ->
+          val active = pagerState.currentPage == index
+          Box(
+            modifier = Modifier
+              .height(6.dp)
+              .width(if (active) 18.dp else 6.dp)
+              .clip(CircleShape)
+              .background(if (active) MyntraPink else Color(0xFFCBD5E1))
+          )
         }
       }
     }
@@ -773,10 +906,8 @@ fun ProductCardItem(
   Card(
     shape = RoundedCornerShape(12.dp),
     colors = CardDefaults.cardColors(containerColor = Color.White),
-    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-    border = CardDefaults.outlinedCardBorder().copy(
-      brush = Brush.linearGradient(listOf(Color(0xFFEAEAEC), Color(0xFFF5F5F6)))
-    ),
+    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
     modifier = modifier
       .fillMaxWidth()
       .testTag("product_card_${product.id}")
@@ -784,7 +915,7 @@ fun ProductCardItem(
     Column(
       modifier = Modifier.fillMaxWidth()
     ) {
-      // Full-bleed Myntra-style Product Photo Frame
+      // Full-bleed Blinkit/Myntra-style Product Photo Frame
       Box(
         modifier = Modifier
           .fillMaxWidth()
@@ -792,11 +923,17 @@ fun ProductCardItem(
           .background(Color(0xFFF5F5F6)),
         contentAlignment = Alignment.Center
       ) {
+        val productModel = rememberCoilData(resolvedImageUrl)
+        val imageRequest = remember(productModel) {
+          ImageRequest.Builder(context)
+            .data(productModel)
+            .size(360, 360)
+            .precision(Precision.INEXACT)
+            .crossfade(120)
+            .build()
+        }
         AsyncImage(
-          model = ImageRequest.Builder(context)
-            .data(resolvedImageUrl)
-            .crossfade(true)
-            .build(),
+          model = imageRequest,
           contentDescription = product.name,
           contentScale = ContentScale.Crop,
           modifier = Modifier
@@ -865,9 +1002,10 @@ fun ProductCardItem(
           .padding(10.dp)
       ) {
 
+      val lang = LocalAppLanguage.current
       // Product Title
       Text(
-        text = product.name,
+        text = product.localizedTitle(lang),
         fontWeight = FontWeight.Bold,
         fontSize = 13.sp,
         color = Color(0xFF1E293B),
@@ -877,7 +1015,15 @@ fun ProductCardItem(
         modifier = Modifier.height(34.dp)
       )
 
-      if (product.hindiName.isNotBlank()) {
+      if (lang == AppLanguage.HINDI && product.name.isNotBlank()) {
+        Text(
+          text = product.name,
+          fontSize = 10.sp,
+          color = Color(0xFF64748B),
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis
+        )
+      } else if (lang != AppLanguage.HINDI && product.hindiName.isNotBlank()) {
         Text(
           text = product.hindiName,
           fontSize = 11.sp,
@@ -969,7 +1115,7 @@ fun ProductCardItem(
 
       if (displaySavings > 0) {
         Text(
-          text = "बचत: ₹${displaySavings.toInt()}",
+          text = "${s(lang, "बचत", "Save", "সাশ্রয়")}: ₹${displaySavings.toInt()}",
           fontSize = 10.sp,
           fontWeight = FontWeight.Bold,
           color = PrimaryGreen
@@ -986,7 +1132,7 @@ fun ProductCardItem(
           modifier = Modifier.fillMaxWidth()
         ) {
           Text(
-            text = "Out of Stock",
+            text = s(lang, "स्टॉक समाप्त", "Out of Stock", "স্টক শেষ"),
             fontSize = 11.sp,
             color = Color(0xFF94A3B8),
             fontWeight = FontWeight.Medium,
@@ -1008,7 +1154,7 @@ fun ProductCardItem(
             .testTag("add_product_${product.id}")
         ) {
           Text(
-            text = "ADD TO BAG +",
+            text = s(lang, "+ जोड़ें", "ADD TO BAG +", "+ যোগ করুন"),
             fontWeight = FontWeight.Bold,
             fontSize = 11.sp
           )
@@ -1076,6 +1222,7 @@ fun CategoryStoryStrip(
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
+  val lang = LocalAppLanguage.current
   androidx.compose.foundation.lazy.LazyRow(
     horizontalArrangement = Arrangement.spacedBy(12.dp),
     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 6.dp),
@@ -1084,6 +1231,7 @@ fun CategoryStoryStrip(
     items(com.example.model.Category.values().size) { index ->
       val cat = com.example.model.Category.values()[index]
       val isSelected = selectedCategory == cat
+      val catName = cat.localizedName(lang)
       Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -1107,16 +1255,18 @@ fun CategoryStoryStrip(
           AsyncImage(
             model = ImageRequest.Builder(context)
               .data(DefaultProducts.fallbackImageForCategory(cat))
-              .crossfade(true)
+              .size(160, 160)
+              .precision(Precision.INEXACT)
+              .crossfade(120)
               .build(),
-            contentDescription = cat.hindiName,
+            contentDescription = catName,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
           )
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-          text = cat.hindiName,
+          text = catName,
           fontSize = 10.sp,
           fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
           color = if (isSelected) MyntraPink else MyntraDark,
@@ -1154,6 +1304,7 @@ fun StickyCartBottomBar(
         .clickable { onOpenCart() }
         .testTag("sticky_cart_bar")
     ) {
+      val lang = LocalAppLanguage.current
       Row(
         modifier = Modifier
           .fillMaxWidth()
@@ -1165,7 +1316,7 @@ fun StickyCartBottomBar(
         Column {
           Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-              text = "$cartCount सामान",
+              text = "$cartCount ${s(lang, "सामान", "items", "টি পণ্য")}",
               fontWeight = FontWeight.Bold,
               fontSize = 14.sp
             )
@@ -1177,7 +1328,7 @@ fun StickyCartBottomBar(
             )
           }
           Text(
-            text = "डिलीवरी सुबह 8:00 AM · ₹${totalSavings.toInt()} बचत",
+            text = "${s(lang, "बचत", "Saved", "সাশ্রয়")}: ₹${totalSavings.toInt()}",
             fontSize = 11.sp,
             color = Color(0xFFBAE6FD)
           )
@@ -1190,7 +1341,7 @@ fun StickyCartBottomBar(
             .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
           Text(
-            text = "कार्ट देखें ➔",
+            text = s(lang, "कार्ट देखें ➔", "View Cart ➔", "কার্ট দেখুন ➔"),
             fontWeight = FontWeight.Bold,
             fontSize = 13.sp,
             color = JioMartBlueDark
@@ -1208,7 +1359,50 @@ fun AreaPickerBottomSheet(
   onSelectArea: (CorridorArea) -> Unit,
   onDismiss: () -> Unit
 ) {
+  val context = LocalContext.current
+  val scope = rememberCoroutineScope()
   val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+  var customLocation by remember { mutableStateOf("") }
+  var isFetchingGps by remember { mutableStateOf(false) }
+
+  fun resolveGps() {
+    scope.launch {
+      isFetchingGps = true
+      val resolved = fetchCurrentLocationAddress(context)
+      isFetchingGps = false
+      if (resolved != null) {
+        onSelectArea(
+          CorridorArea(
+            id = "gps_current",
+            name = resolved.areaName,
+            hindiName = resolved.fullAddress,
+            landmarkHint = "📍 GPS वर्तमान लोकेशन",
+            latitude = resolved.latitude,
+            longitude = resolved.longitude
+          )
+        )
+        onDismiss()
+      } else {
+        Toast.makeText(
+          context,
+          "GPS लोकेशन नहीं मिली। कृपया फोन की Location (GPS) ऑन करें या नीचे पता लिखें।",
+          Toast.LENGTH_LONG
+        ).show()
+      }
+    }
+  }
+
+  val permissionLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.RequestMultiplePermissions()
+  ) { grants ->
+    val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+      grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+    if (granted) {
+      resolveGps()
+    } else {
+      Toast.makeText(context, "लोकेशन अनुमति अस्वीकार की गई", Toast.LENGTH_SHORT).show()
+    }
+  }
 
   ModalBottomSheet(
     onDismissRequest = onDismiss,
@@ -1217,6 +1411,7 @@ fun AreaPickerBottomSheet(
     Column(
       modifier = Modifier
         .fillMaxWidth()
+        .verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 10.dp)
         .padding(bottom = 30.dp)
     ) {
@@ -1232,19 +1427,113 @@ fun AreaPickerBottomSheet(
         Spacer(modifier = Modifier.width(8.dp))
         Column {
           Text(
-            text = "रायगढ़ ➔ पुंजीपथरा डिलीवरी लोकेशन",
+            text = "डिलीवरी लोकेशन चुनें या लिखें",
             fontWeight = FontWeight.Bold,
             fontSize = 16.sp
           )
           Text(
-            text = "सुपरफास्ट होम डिलीवरी • सुबह 8:00 बजे",
+            text = "अपनी वर्तमान लोकेशन चुनें या कहीं का भी नया पता लिखें",
             fontSize = 12.sp,
             color = Color.Gray
           )
         }
       }
 
-      Spacer(modifier = Modifier.height(16.dp))
+      Spacer(modifier = Modifier.height(12.dp))
+
+      // Current GPS Location Button
+      Button(
+        onClick = {
+          if (hasLocationPermission(context)) {
+            resolveGps()
+          } else {
+            permissionLauncher.launch(
+              arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+              )
+            )
+          }
+        },
+        enabled = !isFetchingGps,
+        colors = ButtonDefaults.buttonColors(containerColor = MyntraPink),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(46.dp)
+          .testTag("use_current_location_button")
+      ) {
+        if (isFetchingGps) {
+          CircularProgressIndicator(
+            color = Color.White,
+            strokeWidth = 2.dp,
+            modifier = Modifier.size(18.dp)
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text("लोकेशन खोज रहे हैं...", color = Color.White, fontWeight = FontWeight.Bold)
+        } else {
+          Icon(
+            imageVector = Icons.Default.MyLocation,
+            contentDescription = "Current Location",
+            tint = Color.White,
+            modifier = Modifier.size(18.dp)
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text("वर्तमान लोकेशन इस्तेमाल करें (GPS)", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+      }
+
+      Spacer(modifier = Modifier.height(12.dp))
+
+      // Custom City / Address Input (Replace Raigarh-Punjipathra with any location)
+      OutlinedTextField(
+        value = customLocation,
+        onValueChange = { customLocation = it },
+        label = { Text("कोई और शहर, गाँव या नया पता लिखें") },
+        placeholder = { Text("उदा: बिलासपुर, कोरबा, घरघोड़ा, रायगढ़...") },
+        singleLine = true,
+        trailingIcon = {
+          if (customLocation.isNotEmpty()) {
+            IconButton(onClick = { customLocation = "" }) {
+              Icon(imageVector = Icons.Default.Close, contentDescription = "Clear")
+            }
+          }
+        },
+        modifier = Modifier
+          .fillMaxWidth()
+          .testTag("custom_location_input")
+      )
+
+      if (customLocation.isNotBlank()) {
+        Spacer(modifier = Modifier.height(6.dp))
+        OutlinedButton(
+          onClick = {
+            val clean = customLocation.trim()
+            onSelectArea(
+              CorridorArea(
+                id = "custom_${clean.hashCode()}",
+                name = clean,
+                hindiName = clean,
+                landmarkHint = "कस्टम डिलीवरी लोकेशन"
+              )
+            )
+            onDismiss()
+          },
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.fillMaxWidth().testTag("apply_custom_location_button")
+        ) {
+          Text("\"$customLocation\" को डिलीवरी लोकेशन बनाएं ➔", fontWeight = FontWeight.Bold, color = MyntraPink)
+        }
+      }
+
+      Spacer(modifier = Modifier.height(14.dp))
+      Text(
+        text = "प्रमुख डिलीवरी क्षेत्र:",
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        color = Color.Gray
+      )
+      Spacer(modifier = Modifier.height(4.dp))
 
       DefaultProducts.defaultAreas.forEach { area ->
         val isSelected = area.id == currentArea.id

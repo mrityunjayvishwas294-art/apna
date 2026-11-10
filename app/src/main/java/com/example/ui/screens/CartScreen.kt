@@ -1,7 +1,10 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,9 +27,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Remove
@@ -56,11 +61,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.example.data.fetchCurrentLocationAddress
+import com.example.data.hasLocationPermission
+import com.example.model.CorridorArea
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -115,7 +126,54 @@ fun CartScreen(
   var customerName by remember { mutableStateOf("") }
   var customerPhone by remember { mutableStateOf("") }
   var customerEmail by remember { mutableStateOf("") }
+  var customAreaInput by remember { mutableStateOf(selectedArea.name) }
   var addressDetail by remember { mutableStateOf("") }
+  var isFetchingGps by remember { mutableStateOf(false) }
+  val scope = rememberCoroutineScope()
+
+  LaunchedEffect(selectedArea.name) {
+    customAreaInput = selectedArea.name
+    if (selectedArea.id == "gps_current" && addressDetail.isBlank() && selectedArea.hindiName.isNotBlank()) {
+      addressDetail = selectedArea.hindiName
+    }
+  }
+
+  fun fillCurrentLocation() {
+    scope.launch {
+      isFetchingGps = true
+      val resolved = fetchCurrentLocationAddress(context)
+      isFetchingGps = false
+      if (resolved != null) {
+        customAreaInput = resolved.areaName
+        addressDetail = resolved.fullAddress
+        viewModel.selectArea(
+          CorridorArea(
+            id = "gps_current",
+            name = resolved.areaName,
+            hindiName = resolved.fullAddress,
+            landmarkHint = "📍 GPS वर्तमान लोकेशन",
+            latitude = resolved.latitude,
+            longitude = resolved.longitude
+          )
+        )
+        Toast.makeText(context, "वर्तमान लोकेशन भर दी गई!", Toast.LENGTH_SHORT).show()
+      } else {
+        Toast.makeText(context, "GPS लोकेशन नहीं मिली। कृपया GPS ऑन करें या पता टाइप करें।", Toast.LENGTH_LONG).show()
+      }
+    }
+  }
+
+  val locationPermissionLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.RequestMultiplePermissions()
+  ) { grants ->
+    val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+      grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+    if (granted) {
+      fillCurrentLocation()
+    } else {
+      Toast.makeText(context, "लोकेशन अनुमति अस्वीकार की गई", Toast.LENGTH_SHORT).show()
+    }
+  }
   var specialNote by remember { mutableStateOf("") }
   var upiRefInput by remember { mutableStateOf("") }
   var advanceConfirmedCheckbox by remember { mutableStateOf(false) }
@@ -514,9 +572,81 @@ fun CartScreen(
               )
 
               OutlinedTextField(
+                value = customAreaInput,
+                onValueChange = {
+                  customAreaInput = it
+                  if (it.isNotBlank()) {
+                    viewModel.selectArea(
+                      CorridorArea(
+                        id = "custom_${it.hashCode()}",
+                        name = it,
+                        hindiName = it,
+                        landmarkHint = "कस्टम लोकेशन"
+                      )
+                    )
+                  }
+                },
+                label = { Text("शहर / इलाका (मिटाकर कहीं का भी पता लिखें)*") },
+                trailingIcon = {
+                  if (customAreaInput.isNotEmpty()) {
+                    IconButton(onClick = { customAreaInput = "" }) {
+                      Icon(imageVector = Icons.Default.Close, contentDescription = "Clear Area")
+                    }
+                  }
+                },
+                singleLine = true,
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(vertical = 4.dp)
+                  .testTag("checkout_area_input")
+              )
+
+              OutlinedButton(
+                onClick = {
+                  if (hasLocationPermission(context)) {
+                    fillCurrentLocation()
+                  } else {
+                    locationPermissionLauncher.launch(
+                      arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                      )
+                    )
+                  }
+                },
+                enabled = !isFetchingGps,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(vertical = 4.dp)
+                  .testTag("checkout_gps_button")
+              ) {
+                Icon(
+                  imageVector = Icons.Default.MyLocation,
+                  contentDescription = null,
+                  tint = Color(0xFF0284C7),
+                  modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                  text = if (isFetchingGps) "GPS लोकेशन खोज रहे हैं..." else "📍 वर्तमान लोकेशन (Current Location) भरें",
+                  fontSize = 12.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = Color(0xFF0284C7)
+                )
+              }
+
+              OutlinedTextField(
                 value = addressDetail,
                 onValueChange = { addressDetail = it },
-                label = { Text("मकान नं, गली, कॉलोनी, प्लांट या फ्लैट का पूरा पता*") },
+                label = { Text("मकान नं, गली, कॉलोनी, प्लांट या पूरा पता*") },
+                trailingIcon = {
+                  if (addressDetail.isNotEmpty()) {
+                    IconButton(onClick = { addressDetail = "" }) {
+                      Icon(imageVector = Icons.Default.Close, contentDescription = "Clear Address")
+                    }
+                  }
+                },
                 modifier = Modifier
                   .fillMaxWidth()
                   .padding(vertical = 4.dp)

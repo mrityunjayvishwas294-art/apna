@@ -192,4 +192,27 @@ describe('Apna Market Firestore Security Rules', () => {
 
     await assertSucceeds(updateDoc(doc(admin, 'custom_requests/REQ-101'), { status: 'Brought from Raigarh' }));
   });
+
+  test('riders collection is accessible only by admin', async () => {
+    const custA = dbFor(USER_A);
+    const admin = adminDb();
+
+    await assertSucceeds(setDoc(doc(admin, 'riders/RDR-1001'), {
+      id: 'RDR-1001',
+      name: 'Suresh Kumar',
+      phone: '9876543210',
+      area: 'पूंजीपथरा',
+      vehicleType: 'Bike',
+      isActive: true,
+    }));
+
+    await assertSucceeds(getDoc(doc(admin, 'riders/RDR-1001')));
+    await assertFails(getDoc(doc(custA, 'riders/RDR-1001')));
+    await assertFails(setDoc(doc(custA, 'riders/RDR-9999'), {
+      id: 'RDR-9999',
+      name: 'Fake Rider',
+      phone: '0000000000',
+      isActive: true,
+    }));
+  });
 });

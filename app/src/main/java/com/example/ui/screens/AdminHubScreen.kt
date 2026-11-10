@@ -4,11 +4,13 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import androidx.compose.foundation.background
@@ -39,7 +41,14 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Phone
+import com.example.data.openLocationInMaps
+import com.example.ui.components.rememberCoilData
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
@@ -84,6 +93,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -103,6 +113,7 @@ import com.example.model.Order
 import com.example.model.OrderStatus
 import com.example.model.Product
 import com.example.model.ProductVariant
+import com.example.model.Rider
 import com.example.model.StoreConfig
 import com.example.ui.Screen
 import com.example.ui.StoreViewModel
@@ -127,13 +138,15 @@ fun AdminHubScreen(
   val customRequests by viewModel.customRequests.collectAsState()
   val storeConfig by viewModel.storeConfig.collectAsState()
   val banners by viewModel.banners.collectAsState()
+  val riders by viewModel.riders.collectAsState()
 
   var selectedTab by remember { mutableIntStateOf(0) }
-  val tabTitles = listOf("उत्पाद व फोटो", "सेल व विज्ञापन", "डिलीवरी टाइमिंग", "8 AM ऑर्डर्स", "कंट्रोल सेटिंग्स")
+  val tabTitles = listOf("उत्पाद व फोटो", "सेल व विज्ञापन", "डिलीवरी टाइमिंग", "8 AM ऑर्डर्स", "राइडर हायर", "कंट्रोल सेटिंग्स")
 
   var showAddProductDialog by remember { mutableStateOf(false) }
   var productToEdit by remember { mutableStateOf<Product?>(null) }
   var showAddBannerDialog by remember { mutableStateOf(false) }
+  var showAddRiderDialog by remember { mutableStateOf(false) }
   var searchQuery by remember { mutableStateOf("") }
 
   BackHandler {
@@ -182,6 +195,13 @@ fun AdminHubScreen(
               onClick = { showAddBannerDialog = true }
             ) {
               Icon(imageVector = Icons.Default.Add, contentDescription = "Add Banner", tint = Color.White)
+            }
+          } else if (selectedTab == 4) {
+            IconButton(
+              onClick = { showAddRiderDialog = true },
+              modifier = Modifier.testTag("admin_add_rider_button")
+            ) {
+              Icon(imageVector = Icons.Default.Add, contentDescription = "Hire Rider", tint = Color.White)
             }
           }
         },
@@ -276,11 +296,23 @@ fun AdminHubScreen(
             )
             3 -> OrdersManagementTab(
               orders = orders,
+              riders = riders,
               onStatusChange = { id, status -> viewModel.updateOrderStatus(id, status) },
+              onAssignRider = { orderId, rider -> viewModel.assignRiderToOrder(orderId, rider) },
+              onUpdateCollection = { orderId, mode, settled -> viewModel.updateOrderCollection(orderId, mode, settled) },
               onCall = { viewModel.callPhone(context, it) },
               onWhatsApp = { phone, msg -> viewModel.openWhatsApp(context, phone, msg) }
             )
-            4 -> StoreSettingsTab(
+            4 -> RidersManagementTab(
+              riders = riders,
+              orders = orders,
+              onAddRider = { showAddRiderDialog = true },
+              onToggleActive = { viewModel.toggleRiderActive(it) },
+              onDeleteRider = { viewModel.deleteRider(it) },
+              onCall = { viewModel.callPhone(context, it) },
+              onWhatsApp = { phone, msg -> viewModel.openWhatsApp(context, phone, msg) }
+            )
+            5 -> StoreSettingsTab(
               storeConfig = storeConfig,
               onSave = { viewModel.updateStoreConfig(it) }
             )
@@ -310,6 +342,16 @@ fun AdminHubScreen(
       onSave = { updated ->
         viewModel.updateProduct(updated)
         productToEdit = null
+      }
+    )
+  }
+
+  if (showAddRiderDialog) {
+    AddRiderDialog(
+      onDismiss = { showAddRiderDialog = false },
+      onSave = { name, phone, email, area, vehicle ->
+        viewModel.addRider(name, phone, email, area, vehicle)
+        showAddRiderDialog = false
       }
     )
   }
@@ -396,9 +438,10 @@ fun ProductsManagementTab(
           ) {
             val thumbUrl = product.imageUrl?.takeIf { it.isNotBlank() }
               ?: DefaultProducts.fallbackImageForCategory(product.category)
+            val thumbModel = rememberCoilData(thumbUrl)
             AsyncImage(
               model = ImageRequest.Builder(LocalContext.current)
-                .data(thumbUrl)
+                .data(thumbModel)
                 .crossfade(true)
                 .build(),
               contentDescription = product.name,
@@ -694,10 +737,47 @@ fun DeliveryTimingAndScheduleTab(
             value = timing,
             onValueChange = { timing = it },
             label = { Text("डिलीवरी का समय") },
-            placeholder = { Text("उदा: सुबह ठीक 8:00 AM") },
+            placeholder = { Text("उदा: 4 घंटे, 12 घंटे, 24 घंटे या सुबह 8:00 AM") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
           )
+
+          Spacer(modifier = Modifier.height(6.dp))
+          Text(
+            text = "त्वरित समय चुनें (1-टैप):",
+            fontSize = 11.sp,
+            color = Color.Gray
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+          ) {
+            listOf(
+              "4 घंटे में" to "4 घंटे में डिलीवरी",
+              "12 घंटे में" to "12 घंटे में डिलीवरी",
+              "24 घंटे में" to "24 घंटे में डिलीवरी",
+              "8 AM" to "सुबह ठीक 8:00 AM"
+            ).forEach { (chipLabel, fullValue) ->
+              val isSelected = timing == fullValue
+              Surface(
+                color = if (isSelected) Color(0xFF0284C7) else Color(0xFFE0F2FE),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                  .weight(1f)
+                  .clickable { timing = fullValue }
+              ) {
+                Text(
+                  text = chipLabel,
+                  fontSize = 10.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = if (isSelected) Color.White else Color(0xFF0369A1),
+                  textAlign = TextAlign.Center,
+                  modifier = Modifier.padding(vertical = 7.dp, horizontal = 2.dp)
+                )
+              }
+            }
+          }
 
           Spacer(modifier = Modifier.height(10.dp))
 
@@ -794,7 +874,10 @@ fun DeliveryTimingAndScheduleTab(
 @Composable
 fun OrdersManagementTab(
   orders: List<Order>,
+  riders: List<Rider>,
   onStatusChange: (String, OrderStatus) -> Unit,
+  onAssignRider: (String, Rider) -> Unit,
+  onUpdateCollection: (String, String, Boolean) -> Unit,
   onCall: (String) -> Unit,
   onWhatsApp: (String, String) -> Unit
 ) {
@@ -845,6 +928,43 @@ fun OrdersManagementTab(
           Spacer(modifier = Modifier.height(4.dp))
           Text(text = "ग्राहक: ${order.customerName} (${order.customerPhone})", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
           Text(text = "स्थान: ${order.area} • ${order.addressDetail}", fontSize = 11.sp, color = Color.Gray)
+          val adminContext = LocalContext.current
+          Spacer(modifier = Modifier.height(4.dp))
+          Surface(
+            color = Color(0xFFE0F2FE),
+            shape = RoundedCornerShape(6.dp),
+            modifier = Modifier
+              .clickable {
+                openLocationInMaps(
+                  context = adminContext,
+                  area = order.area,
+                  addressDetail = order.addressDetail,
+                  lat = order.customerLat,
+                  lng = order.customerLng
+                )
+              }
+              .testTag("admin_view_map_${order.id}")
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Icon(
+                imageVector = Icons.Default.LocationOn,
+                contentDescription = "Open Map",
+                tint = Color(0xFF0284C7),
+                modifier = Modifier.size(14.dp)
+              )
+              Spacer(modifier = Modifier.width(4.dp))
+              Text(
+                text = if (order.customerLat != 0.0) "📍 मैप पर सटीक GPS लोकेशन देखें ➔" else "📍 मैप पर पता देखें ➔",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF0369A1)
+              )
+            }
+          }
+          Spacer(modifier = Modifier.height(4.dp))
           Text(text = "कुल राशि: ₹${order.grandTotal.toInt()} (अग्रिम: ₹${order.advancePaid.toInt()} | बाक़ी: ₹${order.balanceDueAtDelivery.toInt()})", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = PrimaryGreen)
           if (order.rating > 0 || order.deliveryTip > 0) {
             Text(
@@ -903,6 +1023,143 @@ fun OrdersManagementTab(
                     fontWeight = FontWeight.Bold,
                     color = if (order.status == st) Color.White else Color.Black,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                  )
+                }
+              }
+            }
+          }
+
+          Spacer(modifier = Modifier.height(8.dp))
+          HorizontalDivider(color = Color(0xFFF1F5F9))
+          Spacer(modifier = Modifier.height(6.dp))
+
+          // Rider Assignment Row
+          if (order.assignedRiderName.isNotBlank()) {
+            Surface(
+              color = Color(0xFFE0F2FE),
+              shape = RoundedCornerShape(6.dp),
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Text(
+                  text = "🛵 राइडर: ${order.assignedRiderName} (${order.assignedRiderPhone})",
+                  fontSize = 11.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = Color(0xFF0369A1),
+                  modifier = Modifier.weight(1f)
+                )
+                Text(
+                  text = "राइडर को भेजें ➔",
+                  fontSize = 10.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = Color(0xFF0284C7),
+                  modifier = Modifier.clickable {
+                    val itemsSummary = order.items.joinToString(", ") { "${it.product.name} x${it.quantity}" }
+                    val mapLink = if (order.customerLat != 0.0 && order.customerLng != 0.0) {
+                      "\n📍 लोकेशन मैप: https://maps.google.com/?q=${order.customerLat},${order.customerLng}"
+                    } else {
+                      "\n📍 लोकेशन मैप: https://maps.google.com/?q=${android.net.Uri.encode("${order.area} ${order.addressDetail}".trim())}"
+                    }
+                    onWhatsApp(
+                      order.assignedRiderPhone,
+                      "नमस्ते ${order.assignedRiderName}, नया डिलीवरी ऑर्डर ${order.id}:\nग्राहक: ${order.customerName} (${order.customerPhone})\nपता: ${order.area}, ${order.addressDetail}$mapLink\nसामान: $itemsSummary\nकुल बाक़ी राशि: ₹${order.balanceDueAtDelivery.toInt()}"
+                    )
+                  }
+                )
+              }
+            }
+          }
+
+          val activeRiders = riders.filter { it.isActive }
+          if (activeRiders.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+              Text("राइडर चुनें:", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Color.Gray)
+              activeRiders.take(3).forEach { r ->
+                val isAssigned = order.assignedRiderId == r.id
+                Surface(
+                  color = if (isAssigned) Color(0xFF0284C7) else Color(0xFFF1F5F9),
+                  shape = RoundedCornerShape(6.dp),
+                  modifier = Modifier.clickable { onAssignRider(order.id, r) }
+                ) {
+                  Text(
+                    text = "🛵 ${r.name.take(10)}",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isAssigned) Color.White else JioMartBlueDark,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                  )
+                }
+              }
+            }
+          }
+
+          // Cash / UPI Collection & Rider Settlement Row
+          if (order.balanceDueAtDelivery > 0 || order.assignedRiderName.isNotBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+              Text("कलेक्शन:", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Color.Gray)
+
+              val isCash = order.collectedPaymentMode == "CASH"
+              Surface(
+                color = if (isCash) Color(0xFFFEF3C7) else Color(0xFFF1F5F9),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.clickable {
+                  onUpdateCollection(order.id, "CASH", order.isRiderCashSettled)
+                }
+              ) {
+                Text(
+                  text = "💵 कैश",
+                  fontSize = 10.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = if (isCash) Color(0xFF92400E) else JioMartBlueDark,
+                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+              }
+
+              val isUpi = order.collectedPaymentMode == "UPI"
+              Surface(
+                color = if (isUpi) Color(0xFFDCFCE7) else Color(0xFFF1F5F9),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.clickable {
+                  onUpdateCollection(order.id, "UPI", true)
+                }
+              ) {
+                Text(
+                  text = "📲 Admin UPI",
+                  fontSize = 10.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = if (isUpi) Color(0xFF166534) else JioMartBlueDark,
+                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+              }
+
+              if (isCash || order.isRiderCashSettled) {
+                Surface(
+                  color = if (order.isRiderCashSettled) PrimaryGreen else Color(0xFF0284C7),
+                  shape = RoundedCornerShape(6.dp),
+                  modifier = Modifier.clickable {
+                    onUpdateCollection(order.id, order.collectedPaymentMode.ifBlank { "CASH" }, !order.isRiderCashSettled)
+                  }
+                ) {
+                  Text(
+                    text = if (order.isRiderCashSettled) "✅ जमा हुआ" else "जमा करें",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                   )
                 }
               }
@@ -1062,17 +1319,22 @@ fun ProductEditorDialog(
 
   var expandedCategory by remember { mutableStateOf(false) }
   val dialogContext = LocalContext.current
+  val dialogScope = rememberCoroutineScope()
 
   val galleryPickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.PickVisualMedia()
   ) { uri ->
     if (uri != null) {
-      val savedPath = savePickedImageToInternalStorage(dialogContext, uri)
-      if (savedPath != null) {
-        imageUrl = savedPath
-        Toast.makeText(dialogContext, "गैलरी से फ़ोटो सेट हो गई!", Toast.LENGTH_SHORT).show()
-      } else {
-        Toast.makeText(dialogContext, "फ़ोटो लोड करने में समस्या हुई", Toast.LENGTH_SHORT).show()
+      dialogScope.launch {
+        val savedPath = withContext(Dispatchers.IO) {
+          savePickedImageToInternalStorage(dialogContext, uri)
+        }
+        if (savedPath != null) {
+          imageUrl = savedPath
+          Toast.makeText(dialogContext, "गैलरी से फ़ोटो सेट हो गई!", Toast.LENGTH_SHORT).show()
+        } else {
+          Toast.makeText(dialogContext, "फ़ोटो लोड करने में समस्या हुई", Toast.LENGTH_SHORT).show()
+        }
       }
     }
   }
@@ -1176,9 +1438,10 @@ fun ProductEditorDialog(
               verticalAlignment = Alignment.CenterVertically,
               horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+              val previewModel = rememberCoilData(previewUrl)
               AsyncImage(
                 model = ImageRequest.Builder(dialogContext)
-                  .data(previewUrl)
+                  .data(previewModel)
                   .crossfade(true)
                   .build(),
                 contentDescription = "Product Preview",
@@ -1210,6 +1473,18 @@ fun ProductEditorDialog(
               label = { Text("या फ़ोटो / GIF लिंक (URL) पेस्ट करें") },
               placeholder = { Text("https://... (.jpg, .png, .gif)") },
               singleLine = true,
+              trailingIcon = {
+                if (imageUrl.isNotBlank()) {
+                  IconButton(onClick = { imageUrl = "" }) {
+                    Icon(
+                      imageVector = Icons.Default.Delete,
+                      contentDescription = "फ़ोटो हटाएं",
+                      tint = TertiaryRed,
+                      modifier = Modifier.size(18.dp)
+                    )
+                  }
+                }
+              },
               modifier = Modifier.fillMaxWidth()
             )
           }
@@ -1446,15 +1721,22 @@ fun BannerEditorDialog(
   var mediaUrl by remember { mutableStateOf("") }
   var isFestival by remember { mutableStateOf(false) }
   val dialogContext = LocalContext.current
+  val bannerScope = rememberCoroutineScope()
 
   val bannerMediaPicker = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.PickVisualMedia()
   ) { uri ->
     if (uri != null) {
-      val savedPath = savePickedImageToInternalStorage(dialogContext, uri)
-      if (savedPath != null) {
-        mediaUrl = savedPath
-        Toast.makeText(dialogContext, "बैनर फ़ोटो / GIF सेट हो गया!", Toast.LENGTH_SHORT).show()
+      bannerScope.launch {
+        val savedPath = withContext(Dispatchers.IO) {
+          savePickedImageToInternalStorage(dialogContext, uri)
+        }
+        if (savedPath != null) {
+          mediaUrl = savedPath
+          Toast.makeText(dialogContext, "बैनर फ़ोटो / GIF सेट हो गया!", Toast.LENGTH_SHORT).show()
+        } else {
+          Toast.makeText(dialogContext, "बैनर लोड करने में समस्या हुई", Toast.LENGTH_SHORT).show()
+        }
       }
     }
   }
@@ -1560,36 +1842,276 @@ private fun savePickedImageToInternalStorage(context: Context, uri: Uri): String
     val mimeType = context.contentResolver.getType(uri)?.lowercase() ?: ""
     val dir = File(context.filesDir, "product_images").apply { mkdirs() }
 
-    // Preserve animated GIFs without bitmap re-encoding
+    // Preserve animated GIFs without bitmap re-encoding; sync small GIFs via Firestore Data URI
     if (mimeType.contains("gif") || uri.toString().lowercase().endsWith(".gif")) {
+      val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+      if (bytes.size <= 320_000) {
+        return "data:image/gif;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+      }
       val gifFile = File(dir, "anim_${System.currentTimeMillis()}.gif")
-      context.contentResolver.openInputStream(uri)?.use { input ->
-        FileOutputStream(gifFile).use { output ->
-          input.copyTo(output)
-        }
-      } ?: return null
+      FileOutputStream(gifFile).use { it.write(bytes) }
       return "file://${gifFile.absolutePath}"
     }
 
-    val inputStream = context.contentResolver.openInputStream(uri) ?: return null
-    val original = BitmapFactory.decodeStream(inputStream)
-    inputStream.close()
-    if (original == null) return null
+    // Two-pass OOM-safe decode with inSampleSize
+    val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, boundsOpts) }
+    val maxDim = 480
+    var sampleSize = 1
+    while (boundsOpts.outWidth / sampleSize > maxDim * 2 || boundsOpts.outHeight / sampleSize > maxDim * 2) {
+      sampleSize *= 2
+    }
 
-    // Auto-resize so it fits product cards smoothly without memory spikes
-    val maxDim = 800
+    val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+    val original = context.contentResolver.openInputStream(uri)?.use {
+      BitmapFactory.decodeStream(it, null, decodeOpts)
+    } ?: return null
+
     val ratio = minOf(maxDim.toFloat() / original.width, maxDim.toFloat() / original.height, 1f)
     val targetW = (original.width * ratio).toInt().coerceAtLeast(1)
     val targetH = (original.height * ratio).toInt().coerceAtLeast(1)
     val resized = if (ratio < 1f) Bitmap.createScaledBitmap(original, targetW, targetH, true) else original
 
-    val outFile = File(dir, "prod_${System.currentTimeMillis()}.jpg")
-    FileOutputStream(outFile).use { fos ->
-      resized.compress(Bitmap.CompressFormat.JPEG, 85, fos)
-    }
+    val baos = ByteArrayOutputStream()
+    resized.compress(Bitmap.CompressFormat.JPEG, 75, baos)
+    val compressedBytes = baos.toByteArray()
+
     if (resized != original) original.recycle()
-    "file://${outFile.absolutePath}"
+    resized.recycle()
+
+    if (compressedBytes.size <= 320_000) {
+      "data:image/jpeg;base64," + Base64.encodeToString(compressedBytes, Base64.NO_WRAP)
+    } else {
+      val outFile = File(dir, "prod_${System.currentTimeMillis()}.jpg")
+      FileOutputStream(outFile).use { it.write(compressedBytes) }
+      "file://${outFile.absolutePath}"
+    }
   } catch (_: Exception) {
     null
   }
+}
+
+@Composable
+fun RidersManagementTab(
+  riders: List<Rider>,
+  orders: List<Order>,
+  onAddRider: () -> Unit,
+  onToggleActive: (String) -> Unit,
+  onDeleteRider: (String) -> Unit,
+  onCall: (String) -> Unit,
+  onWhatsApp: (String, String) -> Unit
+) {
+  Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+    Button(
+      onClick = onAddRider,
+      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+      shape = RoundedCornerShape(10.dp),
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(48.dp)
+        .testTag("hire_new_rider_button")
+    ) {
+      Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = Color.White)
+      Spacer(modifier = Modifier.width(6.dp))
+      Text("नया डिलीवरी राइडर हायर करें (Hire Rider)", fontWeight = FontWeight.Bold, color = Color.White)
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+
+    if (riders.isEmpty()) {
+      Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+          Text("🛵", fontSize = 42.sp)
+          Spacer(modifier = Modifier.height(8.dp))
+          Text("अभी कोई राइडर नहीं जुड़ा है", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = JioMartBlueDark)
+          Text(
+            "ऊपर बटन दबाकर अपने डिलीवरी राइडर का नाम और मोबाइल नंबर जोड़ें।",
+            fontSize = 12.sp,
+            color = Color.Gray
+          )
+        }
+      }
+    } else {
+      LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+      ) {
+        items(riders, key = { it.id }) { rider ->
+          Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    text = "🛵 ${rider.name} (${rider.vehicleType})",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = JioMartBlueDark
+                  )
+                  Text(
+                    text = "📞 ${rider.phone} · क्षेत्र: ${rider.area}",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                  )
+                  if (rider.email.isNotBlank()) {
+                    Text(text = "✉️ ${rider.email}", fontSize = 11.sp, color = Color(0xFF0284C7))
+                  }
+                }
+                Switch(
+                  checked = rider.isActive,
+                  onCheckedChange = { onToggleActive(rider.id) },
+                  colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PrimaryGreen)
+                )
+              }
+
+              val riderOrders = orders.filter { it.assignedRiderId == rider.id }
+              val pendingCash = riderOrders
+                .filter { it.collectedPaymentMode == "CASH" && !it.isRiderCashSettled }
+                .sumOf { it.balanceDueAtDelivery }
+              val settledTotal = riderOrders
+                .filter { it.isRiderCashSettled }
+                .sumOf { it.balanceDueAtDelivery }
+
+              Spacer(modifier = Modifier.height(6.dp))
+              Surface(
+                color = if (pendingCash > 0) Color(0xFFFEF3C7) else Color(0xFFE0F2FE),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Text(
+                  text = "📦 ऑर्डर: ${riderOrders.size} · 💰 बकाया कैश: ₹${pendingCash.toInt()} · ✅ जमा: ₹${settledTotal.toInt()}",
+                  fontSize = 11.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = if (pendingCash > 0) Color(0xFF92400E) else Color(0xFF0369A1),
+                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+              }
+
+              Spacer(modifier = Modifier.height(8.dp))
+
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+              ) {
+                OutlinedButton(
+                  onClick = { onCall(rider.phone) },
+                  shape = RoundedCornerShape(6.dp),
+                  modifier = Modifier.weight(1f)
+                ) {
+                  Icon(imageVector = Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(14.dp))
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text("कॉल", fontSize = 11.sp)
+                }
+
+                Button(
+                  onClick = {
+                    onWhatsApp(
+                      rider.phone,
+                      "नमस्ते ${rider.name}, आपको अपना मार्केट (रायगढ़ ➔ पुंजीपथरा) में डिलीवरी राइडर के रूप में जोड़ा गया है। सुबह 8:00 AM डिलीवरी के लिए तैयार रहें!"
+                    )
+                  },
+                  colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                  shape = RoundedCornerShape(6.dp),
+                  modifier = Modifier.weight(1f)
+                ) {
+                  Text("💬 WhatsApp", fontSize = 11.sp, color = Color.White)
+                }
+
+                IconButton(onClick = { onDeleteRider(rider.id) }) {
+                  Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete Rider", tint = Color(0xFFDC2626))
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+fun AddRiderDialog(
+  onDismiss: () -> Unit,
+  onSave: (name: String, phone: String, email: String, area: String, vehicleType: String) -> Unit
+) {
+  var name by remember { mutableStateOf("") }
+  var phone by remember { mutableStateOf("") }
+  var email by remember { mutableStateOf("") }
+  var area by remember { mutableStateOf("रायगढ़ ➔ पुंजीपथरा") }
+  var vehicleType by remember { mutableStateOf("Bike") }
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = {
+      Text("नया डिलीवरी राइडर जोड़ें", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+    },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+          value = name,
+          onValueChange = { name = it },
+          label = { Text("राइडर का पूरा नाम *") },
+          singleLine = true,
+          modifier = Modifier.fillMaxWidth().testTag("rider_name_input")
+        )
+        OutlinedTextField(
+          value = phone,
+          onValueChange = { phone = it },
+          label = { Text("मोबाइल / WhatsApp नंबर *") },
+          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+          singleLine = true,
+          modifier = Modifier.fillMaxWidth().testTag("rider_phone_input")
+        )
+        OutlinedTextField(
+          value = area,
+          onValueChange = { area = it },
+          label = { Text("डिलीवरी क्षेत्र (Area)") },
+          singleLine = true,
+          modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+          value = vehicleType,
+          onValueChange = { vehicleType = it },
+          label = { Text("वाहन (Bike / Scooty / Auto)") },
+          singleLine = true,
+          modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+          value = email,
+          onValueChange = { email = it },
+          label = { Text("ईमेल (वैकल्पिक)") },
+          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+          singleLine = true,
+          modifier = Modifier.fillMaxWidth()
+        )
+      }
+    },
+    confirmButton = {
+      Button(
+        onClick = {
+          if (name.isNotBlank() && phone.isNotBlank()) {
+            onSave(name, phone, email, area, vehicleType)
+          }
+        },
+        enabled = name.isNotBlank() && phone.isNotBlank(),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+        modifier = Modifier.testTag("save_rider_button")
+      ) {
+        Text("राइडर सेव करें", fontWeight = FontWeight.Bold)
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = onDismiss) {
+        Text("रद्द करें")
+      }
+    }
+  )
 }

@@ -553,6 +553,21 @@ fun OrderItemCard(
           Text(text = "डिलीवरी शुल्क", fontSize = 11.sp, color = Color.Gray)
           Text(text = "₹${order.deliveryCharge.toInt()}${if (order.heavyDeliveryCharge > 0) " + ₹${order.heavyDeliveryCharge.toInt()} (भारी)" else ""}", fontSize = 11.sp, color = Color.Gray)
         }
+        if (order.assignedRiderName.isNotBlank()) {
+          Surface(
+            color = Color(0xFFE0F2FE),
+            shape = RoundedCornerShape(6.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+          ) {
+            Text(
+              text = "🛵 डिलीवरी राइडर: ${order.assignedRiderName} (📞 ${order.assignedRiderPhone})",
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Bold,
+              color = Color(0xFF0369A1),
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+            )
+          }
+        }
       }
 
       // Bill and Payment info

@@ -63,7 +63,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Precision
 import com.example.R
+import com.example.data.AppLanguage
+import com.example.data.LocalAppLanguage
+import com.example.data.localizedName
+import com.example.data.s
 import com.example.model.Category
 import com.example.ui.Screen
 import com.example.ui.StoreViewModel
@@ -101,9 +108,13 @@ fun HomeScreen(
   val selectedCategory by viewModel.selectedCategory.collectAsState()
   val banners by viewModel.banners.collectAsState()
 
+  val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+
   var showAreaPicker by remember { mutableStateOf(false) }
   var showAdminPinDialog by remember { mutableStateOf(false) }
   var adminPinInput by remember { mutableStateOf("") }
+  var showSignOutDialog by remember { mutableStateOf(false) }
+  var showLanguageDialog by remember { mutableStateOf(false) }
 
   Scaffold(
     topBar = {
@@ -130,7 +141,9 @@ fun HomeScreen(
           adminPinInput = ""
           showAdminPinDialog = true
         },
-        onOpenCart = { viewModel.navigateTo(Screen.CART) }
+        onOpenCart = { viewModel.navigateTo(Screen.CART) },
+        onSignOut = { showSignOutDialog = true },
+        onOpenLanguage = { showLanguageDialog = true }
       )
     },
     bottomBar = {
@@ -173,11 +186,11 @@ fun HomeScreen(
             .widthIn(max = 1200.dp)
             .padding(horizontal = 14.dp)
         ) {
-          // 1. Hero Graphic Banner
-          item(span = { GridItemSpan(columnsCount) }) {
+          // 1. Hero Graphic Banner (decoded off-main-thread via Coil for 60fps open)
+          item(span = { GridItemSpan(columnsCount) }, contentType = { "hero_banner" }) {
             Card(
               shape = RoundedCornerShape(16.dp),
-              elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+              elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
               modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 10.dp)
@@ -187,8 +200,15 @@ fun HomeScreen(
                   .fillMaxWidth()
                   .height(heroHeight)
               ) {
-                Image(
-                  painter = painterResource(id = R.drawable.hero_banner),
+                val heroRequest = remember(context) {
+                  ImageRequest.Builder(context)
+                    .data(R.drawable.hero_banner)
+                    .size(900, 450)
+                    .precision(Precision.INEXACT)
+                    .build()
+                }
+                AsyncImage(
+                  model = heroRequest,
                   contentDescription = "अपना मार्केट - रायगढ़ से पुंजीपथरा",
                   contentScale = ContentScale.Crop,
                   modifier = Modifier.fillMaxSize()
@@ -244,7 +264,12 @@ fun HomeScreen(
               onValueChange = { viewModel.searchQuery.value = it },
               placeholder = {
                 Text(
-                  text = "सर्च करें 2000+ सामान (काजल, किताबें, पेन, आलू, दूध, तेल...)",
+                  text = s(
+                    selectedLanguage,
+                    "सर्च करें 2000+ सामान (काजल, किताबें, पेन, आलू, दूध, तेल...)",
+                    "Search 2000+ items (Rice, Milk, Oil, Books, Cosmetics...)",
+                    "২০০০+ পণ্য খুঁজুন (চাল, দুধ, তেল, বই, সাবান...)"
+                  ),
                   fontSize = 13.sp,
                   color = Color(0xFF64748B)
                 )
@@ -299,7 +324,12 @@ fun HomeScreen(
                   verticalAlignment = Alignment.CenterVertically
                 ) {
                   Text(
-                    text = "🔥 ट्रेंडिंग व महाबचत डील्स (स्वाइप करें ➔)",
+                    text = s(
+                      selectedLanguage,
+                      "🔥 ट्रेंडिंग व महाबचत डील्स (स्वाइप करें ➔)",
+                      "🔥 Trending & Best Deals (Swipe ➔)",
+                      "🔥 ট্রেন্ডিং ও মহা-সাশ্রয় ডিল (সোয়াইপ করুন ➔)"
+                    ),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MyntraDark
@@ -310,7 +340,7 @@ fun HomeScreen(
                   contentPadding = PaddingValues(end = 8.dp),
                   modifier = Modifier.fillMaxWidth()
                 ) {
-                  items(trending, key = { "trend_${it.id}" }) { product ->
+                  items(trending, key = { "trend_${it.id}" }, contentType = { "trending_product" }) { product ->
                     ProductCardItem(
                       product = product,
                       cart = cart,
@@ -336,13 +366,13 @@ fun HomeScreen(
             ) {
               Column {
                 Text(
-                  text = "${selectedCategory.hindiName} (${filteredProducts.size} सामान उपलब्ध)",
+                  text = "${selectedCategory.localizedName(selectedLanguage)} (${filteredProducts.size} ${s(selectedLanguage, "सामान उपलब्ध", "items", "টি পণ্য")})",
                   fontSize = 16.sp,
                   fontWeight = FontWeight.Bold,
                   color = Color(0xFF0F172A)
                 )
                 Text(
-                  text = "आज का सही मंडी रेट · डिलीवरी: ${storeConfig.deliveryTiming} (${storeConfig.deliveryScheduleDays})",
+                  text = "${s(selectedLanguage, "आज का सही मंडी रेट · डिलीवरी", "Best Mandi Rate · Delivery", "সেরা বাজার দর · ডেলিভারি")}: ${storeConfig.deliveryTiming} (${storeConfig.deliveryScheduleDays})",
                   fontSize = 11.sp,
                   color = PrimaryGreen,
                   fontWeight = FontWeight.Medium
@@ -400,7 +430,7 @@ fun HomeScreen(
             }
           } else {
             // Products
-            items(filteredProducts, key = { it.id }) { product ->
+            items(filteredProducts, key = { it.id }, contentType = { "product" }) { product ->
               ProductCardItem(
                 product = product,
                 cart = cart,
@@ -500,6 +530,95 @@ fun HomeScreen(
       dismissButton = {
         TextButton(onClick = { showAdminPinDialog = false }) {
           Text("रद्द करें")
+        }
+      }
+    )
+  }
+
+  if (showSignOutDialog) {
+    AlertDialog(
+      onDismissRequest = { showSignOutDialog = false },
+      title = {
+        Text("अकाउंट बदलें / लॉग आउट", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+      },
+      text = {
+        Text(
+          text = "क्या आप अपने Google अकाउंट से साइन आउट करना चाहते हैं? आप दूसरे अकाउंट से दोबारा लॉगिन कर सकते हैं।",
+          fontSize = 13.sp,
+          color = Color(0xFF475569)
+        )
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            showSignOutDialog = false
+            viewModel.signOut(context)
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = MyntraPink),
+          modifier = Modifier.testTag("confirm_logout_button")
+        ) {
+          Text("साइन आउट करें", fontWeight = FontWeight.Bold)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { showSignOutDialog = false }) {
+          Text(s(selectedLanguage, "नहीं, रुकें", "Cancel", "না, থাকুন"))
+        }
+      }
+    )
+  }
+
+  if (showLanguageDialog) {
+    AlertDialog(
+      onDismissRequest = { showLanguageDialog = false },
+      title = {
+        Text(
+          text = s(selectedLanguage, "🌐 भाषा चुनें", "🌐 Choose Language", "🌐 ভাষা নির্বাচন করুন"),
+          fontSize = 16.sp,
+          fontWeight = FontWeight.Bold
+        )
+      },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          AppLanguage.entries.forEach { langOption ->
+            val isSelected = selectedLanguage == langOption
+            Surface(
+              color = if (isSelected) Color(0xFFE0F2FE) else Color(0xFFF8FAFC),
+              shape = RoundedCornerShape(10.dp),
+              border = androidx.compose.foundation.BorderStroke(
+                width = if (isSelected) 1.5.dp else 1.dp,
+                color = if (isSelected) Color(0xFF0284C7) else Color(0xFFE2E8F0)
+              ),
+              modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                  viewModel.setLanguage(langOption)
+                  showLanguageDialog = false
+                }
+                .testTag("lang_option_${langOption.code}")
+            ) {
+              Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Text(
+                  text = langOption.label,
+                  fontSize = 15.sp,
+                  fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                  color = if (isSelected) Color(0xFF0369A1) else Color(0xFF1E293B)
+                )
+                if (isSelected) {
+                  Text("✓", fontWeight = FontWeight.ExtraBold, color = Color(0xFF0284C7), fontSize = 16.sp)
+                }
+              }
+            }
+          }
+        }
+      },
+      confirmButton = {
+        TextButton(onClick = { showLanguageDialog = false }) {
+          Text(s(selectedLanguage, "बंद करें", "Close", "বন্ধ করুন"))
         }
       }
     )

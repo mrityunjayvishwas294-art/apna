@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.R
+import com.example.data.AppLanguage
 import com.example.data.DefaultProducts
 import com.example.data.StoreRepository
 import com.example.ui.screens.signOutGoogle
@@ -25,6 +26,7 @@ import com.example.model.Order
 import com.example.model.OrderStatus
 import com.example.model.Product
 import com.example.model.ProductVariant
+import com.example.model.Rider
 import com.example.model.StoreConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -55,6 +57,12 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
 
   val currentUser = MutableStateFlow<FirebaseUser?>(firebaseAuth.currentUser)
   val currentScreen = MutableStateFlow(Screen.HOME)
+  val selectedLanguage = MutableStateFlow(repository.getLanguage())
+
+  fun setLanguage(lang: AppLanguage) {
+    selectedLanguage.value = lang
+    repository.saveLanguage(lang)
+  }
 
   init {
     firebaseAuth.currentUser?.let { repository.startSync(it) }
@@ -86,6 +94,7 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
   val selectedArea: StateFlow<CorridorArea> = repository.selectedArea
   val storeConfig: StateFlow<StoreConfig> = repository.storeConfig
   val banners: StateFlow<List<BannerAd>> = repository.banners
+  val riders: StateFlow<List<Rider>> = repository.riders
 
   val searchQuery = MutableStateFlow("")
   val selectedCategory = MutableStateFlow(Category.ALL)
@@ -246,6 +255,37 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
   fun updateCustomRequestStatus(requestId: String, status: String) {
     repository.updateCustomRequestStatus(requestId, status)
     Toast.makeText(getApplication(), "अनुरोध $requestId अपडेट हुआ", Toast.LENGTH_SHORT).show()
+  }
+
+  // Hired Delivery Riders controls
+  fun addRider(name: String, phone: String, email: String, area: String, vehicleType: String) {
+    val rider = repository.addRider(name, phone, email, area, vehicleType)
+    Toast.makeText(getApplication(), "नया राइडर जुड़ा: ${rider.name}", Toast.LENGTH_SHORT).show()
+  }
+
+  fun toggleRiderActive(riderId: String) {
+    repository.toggleRiderActive(riderId)
+  }
+
+  fun deleteRider(riderId: String) {
+    repository.deleteRider(riderId)
+    Toast.makeText(getApplication(), "राइडर हटाया गया", Toast.LENGTH_SHORT).show()
+  }
+
+  fun assignRiderToOrder(orderId: String, rider: Rider) {
+    repository.assignRiderToOrder(orderId, rider)
+    Toast.makeText(getApplication(), "ऑर्डर $orderId राइडर ${rider.name} को असाइन हुआ!", Toast.LENGTH_SHORT).show()
+  }
+
+  fun updateOrderCollection(orderId: String, mode: String, settled: Boolean) {
+    repository.updateOrderCollection(orderId, mode, settled)
+    val msg = when {
+      settled -> "ऑर्डर $orderId का हिसाब पूरा (Settled) हुआ!"
+      mode == "CASH" -> "राइडर ने कैश कलेक्ट किया (जमा बाकी)"
+      mode == "UPI" -> "सीधे Admin UPI पर पेमेंट प्राप्त हुआ"
+      else -> "कलेक्शन स्थिति अपडेट हुई"
+    }
+    Toast.makeText(getApplication(), msg, Toast.LENGTH_SHORT).show()
   }
 
   fun updateStoreConfig(config: StoreConfig) {

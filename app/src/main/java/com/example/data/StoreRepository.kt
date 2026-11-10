@@ -12,6 +12,7 @@ import com.example.model.Order
 import com.example.model.OrderStatus
 import com.example.model.Product
 import com.example.model.ProductVariant
+import com.example.model.Rider
 import com.example.model.StoreConfig
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
@@ -20,12 +21,16 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
@@ -44,15 +49,24 @@ class StoreRepository(
     const val COL_BANNERS = "banners"
     const val COL_ORDERS = "orders"
     const val COL_CUSTOM_REQUESTS = "custom_requests"
+    const val COL_RIDERS = "riders"
   }
 
   private val prefs: SharedPreferences =
     context.getSharedPreferences("apna_market_prefs_v5", Context.MODE_PRIVATE)
 
+  fun getLanguage(): AppLanguage =
+    AppLanguage.fromCode(prefs.getString("app_language", AppLanguage.HINDI.code))
+
+  fun saveLanguage(lang: AppLanguage) {
+    prefs.edit().putString("app_language", lang.code).apply()
+  }
+
+  private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val listeners = mutableListOf<ListenerRegistration>()
 
   // Products
-  private val _products = MutableStateFlow<List<Product>>(loadProducts())
+  private val _products = MutableStateFlow<List<Product>>(DefaultProducts.getInitialCatalog())
   val products: StateFlow<List<Product>> = _products.asStateFlow()
 
   // Cart
@@ -60,11 +74,11 @@ class StoreRepository(
   val cart: StateFlow<Map<String, CartItem>> = _cart.asStateFlow()
 
   // Orders
-  private val _orders = MutableStateFlow<List<Order>>(loadOrders())
+  private val _orders = MutableStateFlow<List<Order>>(emptyList())
   val orders: StateFlow<List<Order>> = _orders.asStateFlow()
 
   // Custom Item Requests
-  private val _customRequests = MutableStateFlow<List<CustomItemRequest>>(loadCustomRequests())
+  private val _customRequests = MutableStateFlow<List<CustomItemRequest>>(emptyList())
   val customRequests: StateFlow<List<CustomItemRequest>> = _customRequests.asStateFlow()
 
   // Selected Corridor Area
@@ -74,12 +88,27 @@ class StoreRepository(
   val selectedArea: StateFlow<CorridorArea> = _selectedArea.asStateFlow()
 
   // Store Configuration & Owner controls
-  private val _storeConfig = MutableStateFlow(loadStoreConfig())
+  private val _storeConfig = MutableStateFlow(StoreConfig())
   val storeConfig: StateFlow<StoreConfig> = _storeConfig.asStateFlow()
 
   // Banners & Sale Ads
-  private val _banners = MutableStateFlow<List<BannerAd>>(loadBanners())
+  private val _banners = MutableStateFlow<List<BannerAd>>(seedDefaultBanners())
   val banners: StateFlow<List<BannerAd>> = _banners.asStateFlow()
+
+  // Hired Delivery Riders (Admin only)
+  private val _riders = MutableStateFlow<List<Rider>>(emptyList())
+  val riders: StateFlow<List<Rider>> = _riders.asStateFlow()
+
+  init {
+    ioScope.launch {
+      _products.value = loadProducts()
+      _orders.value = loadOrders()
+      _customRequests.value = loadCustomRequests()
+      _storeConfig.value = loadStoreConfig()
+      _banners.value = loadBanners()
+      _riders.value = loadRiders()
+    }
+  }
 
   fun isUserAdmin(user: FirebaseUser? = auth?.currentUser): Boolean {
     if (user == null) return false
@@ -194,6 +223,23 @@ class StoreRepository(
           .sortedByDescending { it.timestamp }
         _customRequests.value = remote
         saveCustomRequests(remote)
+      }
+    }
+
+    // 6. Hired Riders (Admin only)
+    if (admin) {
+      listeners += db.collection(COL_RIDERS).addSnapshotListener { snapshot, error ->
+        if (error != null) {
+          Log.w(TAG, "riders listener error", error)
+          return@addSnapshotListener
+        }
+        if (snapshot != null) {
+          val remote = snapshot.documents
+            .mapNotNull { docToRider(it) }
+            .sortedByDescending { it.createdAt }
+          _riders.value = remote
+          saveRiders(remote)
+        }
       }
     }
   }
@@ -451,7 +497,9 @@ class StoreRepository(
       status = OrderStatus.RECEIVED,
       mrityunjayTrustGuarantee = true,
       specialNote = specialNote,
-      isMyOrder = true
+      isMyOrder = true,
+      customerLat = _selectedArea.value.latitude,
+      customerLng = _selectedArea.value.longitude
     )
 
     val updatedOrders = listOf(order) + _orders.value
@@ -563,6 +611,111 @@ class StoreRepository(
         )
       )
       ?.addOnFailureListener { e -> Log.w(TAG, "updateCustomRequestStatus remote failed", e) }
+  }
+
+  // Hired Delivery Riders management
+  fun addRider(
+    name: String,
+    phone: String,
+    email: String = "",
+    area: String = "रायगढ़ ➔ पुंजीपथरा",
+    vehicleType: String = "Bike"
+  ): Rider {
+    val rider = Rider(
+      id = "RDR-${(1000..9999).random()}",
+      name = name.trim(),
+      phone = phone.trim(),
+      email = email.trim(),
+      area = area.trim().ifBlank { "रायगढ़ ➔ पुंजीपथरा" },
+      vehicleType = vehicleType.trim().ifBlank { "Bike" },
+      isActive = true,
+      createdAt = System.currentTimeMillis()
+    )
+    val list = listOf(rider) + _riders.value
+    _riders.value = list
+    saveRiders(list)
+
+    firestore?.collection(COL_RIDERS)?.document(rider.id)
+      ?.set(riderToMap(rider))
+      ?.addOnFailureListener { e -> Log.w(TAG, "addRider remote failed", e) }
+    return rider
+  }
+
+  fun toggleRiderActive(riderId: String) {
+    var toggled: Rider? = null
+    val list = _riders.value.map {
+      if (it.id == riderId) {
+        val copy = it.copy(isActive = !it.isActive)
+        toggled = copy
+        copy
+      } else it
+    }
+    _riders.value = list
+    saveRiders(list)
+
+    toggled?.let { r ->
+      firestore?.collection(COL_RIDERS)?.document(r.id)
+        ?.set(riderToMap(r))
+        ?.addOnFailureListener { e -> Log.w(TAG, "toggleRiderActive remote failed", e) }
+    }
+  }
+
+  fun deleteRider(riderId: String) {
+    val list = _riders.value.filter { it.id != riderId }
+    _riders.value = list
+    saveRiders(list)
+
+    firestore?.collection(COL_RIDERS)?.document(riderId)
+      ?.delete()
+      ?.addOnFailureListener { e -> Log.w(TAG, "deleteRider remote failed", e) }
+  }
+
+  fun assignRiderToOrder(orderId: String, rider: Rider) {
+    val list = _orders.value.map {
+      if (it.id == orderId) {
+        it.copy(
+          assignedRiderId = rider.id,
+          assignedRiderName = rider.name,
+          assignedRiderPhone = rider.phone
+        )
+      } else it
+    }
+    _orders.value = list
+    saveOrders(list)
+
+    firestore?.collection(COL_ORDERS)?.document(orderId)
+      ?.update(
+        mapOf(
+          "assignedRiderId" to rider.id,
+          "assignedRiderName" to rider.name,
+          "assignedRiderPhone" to rider.phone,
+          "updatedAt" to FieldValue.serverTimestamp()
+        )
+      )
+      ?.addOnFailureListener { e -> Log.w(TAG, "assignRiderToOrder remote failed", e) }
+  }
+
+  fun updateOrderCollection(orderId: String, mode: String, settled: Boolean) {
+    val list = _orders.value.map {
+      if (it.id == orderId) {
+        it.copy(
+          collectedPaymentMode = mode,
+          isRiderCashSettled = settled
+        )
+      } else it
+    }
+    _orders.value = list
+    saveOrders(list)
+
+    firestore?.collection(COL_ORDERS)?.document(orderId)
+      ?.update(
+        mapOf(
+          "collectedPaymentMode" to mode,
+          "isRiderCashSettled" to settled,
+          "updatedAt" to FieldValue.serverTimestamp()
+        )
+      )
+      ?.addOnFailureListener { e -> Log.w(TAG, "updateOrderCollection remote failed", e) }
   }
 
   // =========================================================================
@@ -751,7 +904,14 @@ class StoreRepository(
     "specialNote" to o.specialNote,
     "rating" to o.rating,
     "ratingReview" to o.ratingReview,
-    "deliveryTip" to o.deliveryTip
+    "deliveryTip" to o.deliveryTip,
+    "assignedRiderId" to o.assignedRiderId,
+    "assignedRiderName" to o.assignedRiderName,
+    "assignedRiderPhone" to o.assignedRiderPhone,
+    "collectedPaymentMode" to o.collectedPaymentMode,
+    "isRiderCashSettled" to o.isRiderCashSettled,
+    "customerLat" to o.customerLat,
+    "customerLng" to o.customerLng
   )
 
   private fun docToOrder(doc: DocumentSnapshot, currentUid: String): Order? {
@@ -810,7 +970,41 @@ class StoreRepository(
       isMyOrder = userId == currentUid,
       rating = (doc.getLong("rating") ?: 0L).toInt(),
       ratingReview = doc.getString("ratingReview") ?: "",
-      deliveryTip = doc.getDouble("deliveryTip") ?: 0.0
+      deliveryTip = doc.getDouble("deliveryTip") ?: 0.0,
+      assignedRiderId = doc.getString("assignedRiderId") ?: "",
+      assignedRiderName = doc.getString("assignedRiderName") ?: "",
+      assignedRiderPhone = doc.getString("assignedRiderPhone") ?: "",
+      collectedPaymentMode = doc.getString("collectedPaymentMode") ?: "",
+      isRiderCashSettled = doc.getBoolean("isRiderCashSettled") ?: false,
+      customerLat = doc.getDouble("customerLat") ?: 0.0,
+      customerLng = doc.getDouble("customerLng") ?: 0.0
+    )
+  }
+
+  private fun riderToMap(r: Rider): Map<String, Any?> = mapOf(
+    "id" to r.id,
+    "name" to r.name,
+    "phone" to r.phone,
+    "email" to r.email,
+    "area" to r.area,
+    "vehicleType" to r.vehicleType,
+    "isActive" to r.isActive,
+    "createdAt" to r.createdAt
+  )
+
+  private fun docToRider(doc: DocumentSnapshot): Rider? {
+    val id = doc.getString("id") ?: doc.id
+    val name = doc.getString("name") ?: return null
+    val phone = doc.getString("phone") ?: return null
+    return Rider(
+      id = id,
+      name = name,
+      phone = phone,
+      email = doc.getString("email") ?: "",
+      area = doc.getString("area") ?: "रायगढ़ ➔ पुंजीपथरा",
+      vehicleType = doc.getString("vehicleType") ?: "Bike",
+      isActive = doc.getBoolean("isActive") ?: true,
+      createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis()
     )
   }
 
@@ -916,41 +1110,43 @@ class StoreRepository(
     )
   }
 
-  // JSON Serialization helpers (local offline cache)
+  // JSON Serialization helpers (offloaded to Dispatchers.IO for smooth 60fps UI)
   private fun saveProducts(list: List<Product>) {
-    try {
-      val jsonArray = JSONArray()
-      for (p in list) {
-        val obj = JSONObject().apply {
-          put("id", p.id)
-          put("name", p.name)
-          put("hindiName", p.hindiName)
-          put("category", p.category.name)
-          put("unit", p.unit)
-          put("mrp", p.mrp)
-          put("ourPrice", p.ourPrice)
-          put("inStock", p.inStock)
-          put("tag", p.tag ?: "")
-          put("emoji", p.emoji)
-          put("imageUrl", p.imageUrl ?: "")
-          put("description", p.description)
-          put("isHeavy", p.isHeavy)
-          val variantsArr = JSONArray()
-          for (v in p.variants) {
-            variantsArr.put(
-              JSONObject().apply {
-                put("label", v.label)
-                put("mrp", v.mrp)
-                put("ourPrice", v.ourPrice)
-              }
-            )
+    ioScope.launch {
+      try {
+        val jsonArray = JSONArray()
+        for (p in list) {
+          val obj = JSONObject().apply {
+            put("id", p.id)
+            put("name", p.name)
+            put("hindiName", p.hindiName)
+            put("category", p.category.name)
+            put("unit", p.unit)
+            put("mrp", p.mrp)
+            put("ourPrice", p.ourPrice)
+            put("inStock", p.inStock)
+            put("tag", p.tag ?: "")
+            put("emoji", p.emoji)
+            put("imageUrl", p.imageUrl ?: "")
+            put("description", p.description)
+            put("isHeavy", p.isHeavy)
+            val variantsArr = JSONArray()
+            for (v in p.variants) {
+              variantsArr.put(
+                JSONObject().apply {
+                  put("label", v.label)
+                  put("mrp", v.mrp)
+                  put("ourPrice", v.ourPrice)
+                }
+              )
+            }
+            put("variants", variantsArr)
           }
-          put("variants", variantsArr)
+          jsonArray.put(obj)
         }
-        jsonArray.put(obj)
-      }
-      prefs.edit().putString("saved_products_v8", jsonArray.toString()).apply()
-    } catch (_: Exception) {}
+        prefs.edit().putString("saved_products_v8", jsonArray.toString()).apply()
+      } catch (_: Exception) {}
+    }
   }
 
   private fun loadProducts(): List<Product> {
@@ -1112,6 +1308,13 @@ class StoreRepository(
           put("rating", o.rating)
           put("ratingReview", o.ratingReview)
           put("deliveryTip", o.deliveryTip)
+          put("assignedRiderId", o.assignedRiderId)
+          put("assignedRiderName", o.assignedRiderName)
+          put("assignedRiderPhone", o.assignedRiderPhone)
+          put("collectedPaymentMode", o.collectedPaymentMode)
+          put("isRiderCashSettled", o.isRiderCashSettled)
+          put("customerLat", o.customerLat)
+          put("customerLng", o.customerLng)
 
           val itemsArr = JSONArray()
           for (item in o.items) {
@@ -1192,7 +1395,14 @@ class StoreRepository(
             isMyOrder = obj.optBoolean("isMyOrder", false),
             rating = obj.optInt("rating", 0),
             ratingReview = obj.optString("ratingReview", ""),
-            deliveryTip = obj.optDouble("deliveryTip", 0.0)
+            deliveryTip = obj.optDouble("deliveryTip", 0.0),
+            assignedRiderId = obj.optString("assignedRiderId", ""),
+            assignedRiderName = obj.optString("assignedRiderName", ""),
+            assignedRiderPhone = obj.optString("assignedRiderPhone", ""),
+            collectedPaymentMode = obj.optString("collectedPaymentMode", ""),
+            isRiderCashSettled = obj.optBoolean("isRiderCashSettled", false),
+            customerLat = obj.optDouble("customerLat", 0.0),
+            customerLng = obj.optDouble("customerLng", 0.0)
           )
         )
       }
@@ -1325,6 +1535,52 @@ class StoreRepository(
       )
     } catch (_: Exception) {
       StoreConfig()
+    }
+  }
+
+  private fun saveRiders(list: List<Rider>) {
+    try {
+      val array = JSONArray()
+      for (r in list) {
+        val obj = JSONObject().apply {
+          put("id", r.id)
+          put("name", r.name)
+          put("phone", r.phone)
+          put("email", r.email)
+          put("area", r.area)
+          put("vehicleType", r.vehicleType)
+          put("isActive", r.isActive)
+          put("createdAt", r.createdAt)
+        }
+        array.put(obj)
+      }
+      prefs.edit().putString("saved_riders_v1", array.toString()).apply()
+    } catch (_: Exception) {}
+  }
+
+  private fun loadRiders(): List<Rider> {
+    val raw = prefs.getString("saved_riders_v1", null) ?: return emptyList()
+    return try {
+      val array = JSONArray(raw)
+      val list = mutableListOf<Rider>()
+      for (i in 0 until array.length()) {
+        val obj = array.getJSONObject(i)
+        list.add(
+          Rider(
+            id = obj.getString("id"),
+            name = obj.getString("name"),
+            phone = obj.getString("phone"),
+            email = obj.optString("email", ""),
+            area = obj.optString("area", "रायगढ़ ➔ पुंजीपथरा"),
+            vehicleType = obj.optString("vehicleType", "Bike"),
+            isActive = obj.optBoolean("isActive", true),
+            createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+          )
+        )
+      }
+      list
+    } catch (_: Exception) {
+      emptyList()
     }
   }
 }
