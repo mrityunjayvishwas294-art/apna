@@ -2,9 +2,13 @@ package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -37,6 +41,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Remove
@@ -154,10 +160,16 @@ fun TopCorridorHeader(
 ) {
   val lang = LocalAppLanguage.current
   Surface(
-    color = MyntraDark,
+    color = Color.Transparent,
     contentColor = Color.White,
     shadowElevation = 4.dp,
-    modifier = modifier.fillMaxWidth()
+    modifier = modifier
+      .fillMaxWidth()
+      .background(
+        Brush.verticalGradient(
+          listOf(Color(0xFF0284C7), Color(0xFF0369A1))
+        )
+      )
   ) {
     Column(
       modifier = Modifier
@@ -879,6 +891,9 @@ fun ProductCardItem(
   product: Product,
   cart: Map<String, CartItem>,
   isFestivalSaleActive: Boolean = false,
+  isWishlisted: Boolean = false,
+  onToggleWishlist: () -> Unit = {},
+  onClick: () -> Unit = {},
   onAdd: (ProductVariant?) -> Unit,
   onRemove: (String) -> Unit,
   modifier: Modifier = Modifier
@@ -910,6 +925,7 @@ fun ProductCardItem(
     border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
     modifier = modifier
       .fillMaxWidth()
+      .clickable { onClick() }
       .testTag("product_card_${product.id}")
   ) {
     Column(
@@ -976,7 +992,7 @@ fun ProductCardItem(
           }
         }
 
-        // Top-right Myntra Pink Discount badge
+        // Top-right Myntra/Flipkart Discount badge
         if (displayDiscount > 0) {
           Surface(
             color = MyntraPink,
@@ -991,6 +1007,34 @@ fun ProductCardItem(
               fontWeight = FontWeight.ExtraBold,
               color = Color.White,
               modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+            )
+          }
+        }
+
+        // Bottom-right Wishlist Heart Button with Spring Bounce Motion
+        val heartScale by animateFloatAsState(
+          targetValue = if (isWishlisted) 1.15f else 1.0f,
+          animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+          label = "heartBounce"
+        )
+        Surface(
+          color = Color.White.copy(alpha = 0.94f),
+          shape = CircleShape,
+          shadowElevation = 2.dp,
+          modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(6.dp)
+            .size(30.dp)
+            .graphicsLayer { scaleX = heartScale; scaleY = heartScale }
+            .clickable { onToggleWishlist() }
+            .testTag("wishlist_btn_${product.id}")
+        ) {
+          Box(contentAlignment = Alignment.Center) {
+            Icon(
+              imageVector = if (isWishlisted) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+              contentDescription = "Wishlist",
+              tint = if (isWishlisted) Color(0xFFEF4444) else Color(0xFF64748B),
+              modifier = Modifier.size(16.dp)
             )
           }
         }
@@ -1219,6 +1263,10 @@ fun ProductCardItem(
 fun CategoryStoryStrip(
   selectedCategory: com.example.model.Category,
   onSelectCategory: (com.example.model.Category) -> Unit,
+  categoryImages: Map<String, String> = emptyMap(),
+  customCategories: List<com.example.model.CustomCategory> = emptyList(),
+  selectedCustomCategoryId: String? = null,
+  onSelectCustomCategory: (String) -> Unit = {},
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
@@ -1228,14 +1276,84 @@ fun CategoryStoryStrip(
     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 6.dp),
     modifier = modifier.fillMaxWidth()
   ) {
-    items(com.example.model.Category.values().size) { index ->
-      val cat = com.example.model.Category.values()[index]
-      val isSelected = selectedCategory == cat
-      val catName = cat.localizedName(lang)
+    // 1. Custom Categories created by Admin
+    items(customCategories.size, key = { "cc_${customCategories[it].id}" }) { idx ->
+      val cc = customCategories[idx]
+      val isSelected = selectedCustomCategoryId == cc.id
+      val scale by animateFloatAsState(
+        targetValue = if (isSelected) 1.08f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "ccScale"
+      )
+      val ccTitle = if (lang == AppLanguage.HINDI) cc.hindiName else cc.name
       Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
           .width(72.dp)
+          .graphicsLayer { scaleX = scale; scaleY = scale }
+          .clickable { onSelectCustomCategory(cc.id) }
+      ) {
+        Box(
+          modifier = Modifier
+            .size(60.dp)
+            .border(
+              width = if (isSelected) 2.5.dp else 1.2.dp,
+              color = if (isSelected) Color(0xFF0284C7) else Color(0xFFBAE6FD),
+              shape = CircleShape
+            )
+            .padding(3.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFE0F2FE)),
+          contentAlignment = Alignment.Center
+        ) {
+          val imgData = if (cc.imageUrl.isNotBlank()) rememberCoilData(cc.imageUrl) else DefaultProducts.fallbackImageForCategory(com.example.model.Category.ALL)
+          AsyncImage(
+            model = ImageRequest.Builder(context)
+              .data(imgData)
+              .size(160, 160)
+              .precision(Precision.INEXACT)
+              .crossfade(120)
+              .build(),
+            contentDescription = ccTitle,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+          )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+          text = ccTitle,
+          fontSize = 10.sp,
+          fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+          color = if (isSelected) Color(0xFF0284C7) else MyntraDark,
+          maxLines = 2,
+          textAlign = TextAlign.Center,
+          lineHeight = 12.sp,
+          overflow = TextOverflow.Ellipsis
+        )
+      }
+    }
+
+    // 2. Built-in Categories (with Admin image override support)
+    items(com.example.model.Category.values().size) { index ->
+      val cat = com.example.model.Category.values()[index]
+      val isSelected = selectedCustomCategoryId == null && selectedCategory == cat
+      val scale by animateFloatAsState(
+        targetValue = if (isSelected) 1.08f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "catScale"
+      )
+      val catName = cat.localizedName(lang)
+      val overrideUrl = categoryImages[cat.name]
+      val imgData: Any = if (!overrideUrl.isNullOrBlank()) {
+        rememberCoilData(overrideUrl)
+      } else {
+        DefaultProducts.fallbackImageForCategory(cat)
+      }
+      Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+          .width(72.dp)
+          .graphicsLayer { scaleX = scale; scaleY = scale }
           .clickable { onSelectCategory(cat) }
           .testTag("story_cat_${cat.name}")
       ) {
@@ -1254,7 +1372,7 @@ fun CategoryStoryStrip(
         ) {
           AsyncImage(
             model = ImageRequest.Builder(context)
-              .data(DefaultProducts.fallbackImageForCategory(cat))
+              .data(imgData)
               .size(160, 160)
               .precision(Precision.INEXACT)
               .crossfade(120)
@@ -1594,3 +1712,225 @@ fun AreaPickerBottomSheet(
     }
   }
 }
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun ProductDetailSheet(
+  product: Product,
+  cart: Map<String, CartItem>,
+  isWishlisted: Boolean,
+  onToggleWishlist: () -> Unit,
+  onAdd: (ProductVariant?) -> Unit,
+  onRemove: (String) -> Unit,
+  onDismiss: () -> Unit
+) {
+  val context = LocalContext.current
+  val resolvedImageUrl = product.imageUrl?.takeIf { it.isNotBlank() }
+    ?: DefaultProducts.fallbackImageForCategory(product.category)
+  val defaultIndex = remember(product.id, product.variants) {
+    val idx = product.variants.indexOfFirst { it.label.equals(product.unit, ignoreCase = true) }
+    if (idx >= 0) idx else 0
+  }
+  var selectedVariantIndex by remember(product.id, product.variants) {
+    mutableIntStateOf(defaultIndex)
+  }
+  val activeVariant = product.variants.getOrNull(selectedVariantIndex)
+  val displayUnit = activeVariant?.label ?: product.unit
+  val displayMrp = activeVariant?.mrp ?: product.mrp
+  val displayPrice = activeVariant?.ourPrice ?: product.ourPrice
+  val displayDiscount = activeVariant?.discountPercent ?: product.discountPercent
+  val displaySavings = activeVariant?.savings ?: product.savings
+  val cartKey = "${product.id}__${displayUnit}"
+  val cartQuantity = cart[cartKey]?.quantity ?: 0
+
+  ModalBottomSheet(
+    onDismissRequest = onDismiss,
+    containerColor = Color.White,
+    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+  ) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 16.dp)
+        .padding(bottom = 24.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(210.dp)
+          .clip(RoundedCornerShape(16.dp))
+          .background(Color(0xFFF1F5F9))
+      ) {
+        val productModel = rememberCoilData(resolvedImageUrl)
+        AsyncImage(
+          model = ImageRequest.Builder(context)
+            .data(productModel)
+            .crossfade(true)
+            .build(),
+          contentDescription = product.name,
+          contentScale = ContentScale.Crop,
+          modifier = Modifier.fillMaxSize()
+        )
+        if (displayDiscount > 0) {
+          Surface(
+            color = PrimaryGreen,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier
+              .align(Alignment.TopStart)
+              .padding(10.dp)
+          ) {
+            Text(
+              text = "$displayDiscount% OFF",
+              color = Color.White,
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Black,
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+          }
+        }
+        IconButton(
+          onClick = onToggleWishlist,
+          modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(8.dp)
+            .background(Color.White.copy(alpha = 0.9f), CircleShape)
+        ) {
+          Icon(
+            imageVector = if (isWishlisted) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+            contentDescription = "पसंदीदा",
+            tint = if (isWishlisted) Color(0xFFE11D48) else Color(0xFF475569)
+          )
+        }
+      }
+
+      Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+          text = product.hindiName.ifBlank { product.name },
+          fontSize = 19.sp,
+          fontWeight = FontWeight.ExtraBold,
+          color = Color(0xFF0F172A)
+        )
+        if (product.name.isNotBlank() && product.name != product.hindiName) {
+          Text(
+            text = product.name,
+            fontSize = 13.sp,
+            color = Color(0xFF64748B)
+          )
+        }
+        if (product.description.isNotBlank()) {
+          Text(
+            text = product.description,
+            fontSize = 12.sp,
+            color = Color(0xFF475569),
+            lineHeight = 17.sp,
+            modifier = Modifier.padding(top = 4.dp)
+          )
+        }
+      }
+
+      if (product.variants.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          Text("वज़न / पैक चुनें:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+          FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            product.variants.forEachIndexed { idx, variant ->
+              val isSel = idx == selectedVariantIndex
+              Surface(
+                color = if (isSel) JioMartBlue else Color(0xFFF1F5F9),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.clickable { selectedVariantIndex = idx }
+              ) {
+                Text(
+                  text = "${variant.label} · ₹${variant.ourPrice.toInt()}",
+                  fontSize = 12.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = if (isSel) Color.White else Color(0xFF1E293B),
+                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+              }
+            }
+          }
+        }
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column {
+          Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+              text = "₹${displayPrice.toInt()}",
+              fontSize = 22.sp,
+              fontWeight = FontWeight.Black,
+              color = Color(0xFF0F172A)
+            )
+            if (displayMrp > displayPrice) {
+              Text(
+                text = "₹${displayMrp.toInt()}",
+                fontSize = 14.sp,
+                color = Color(0xFF94A3B8),
+                textDecoration = TextDecoration.LineThrough
+              )
+            }
+          }
+          if (displaySavings > 0) {
+            Text(
+              text = "सीधी बचत ₹${displaySavings.toInt()} ($displayUnit)",
+              fontSize = 12.sp,
+              fontWeight = FontWeight.Bold,
+              color = PrimaryGreen
+            )
+          }
+        }
+
+        if (!product.inStock) {
+          Surface(color = Color(0xFFFEE2E2), shape = RoundedCornerShape(10.dp)) {
+            Text(
+              text = "स्टॉक खत्म",
+              color = TertiaryRed,
+              fontWeight = FontWeight.Bold,
+              fontSize = 13.sp,
+              modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+            )
+          }
+        } else if (cartQuantity == 0) {
+          Button(
+            onClick = { onAdd(activeVariant) },
+            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.height(48.dp)
+          ) {
+            Text("+ कार्ट में जोड़ें", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+          }
+        } else {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+              .clip(RoundedCornerShape(10.dp))
+              .background(PrimaryGreen)
+          ) {
+            IconButton(onClick = { onRemove(cartKey) }) {
+              Text("-", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
+            }
+            Text(
+              text = "$cartQuantity",
+              color = Color.White,
+              fontWeight = FontWeight.ExtraBold,
+              fontSize = 16.sp,
+              modifier = Modifier.padding(horizontal = 8.dp)
+            )
+            IconButton(onClick = { onAdd(activeVariant) }) {
+              Text("+", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

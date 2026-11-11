@@ -109,12 +109,16 @@ fun HomeScreen(
   val banners by viewModel.banners.collectAsState()
 
   val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+  val wishlistIds by viewModel.wishlistIds.collectAsState()
+  val showWishlistOnly by viewModel.showWishlistOnly.collectAsState()
+  val selectedCustomCategoryId by viewModel.selectedCustomCategoryId.collectAsState()
 
   var showAreaPicker by remember { mutableStateOf(false) }
   var showAdminPinDialog by remember { mutableStateOf(false) }
   var adminPinInput by remember { mutableStateOf("") }
   var showSignOutDialog by remember { mutableStateOf(false) }
   var showLanguageDialog by remember { mutableStateOf(false) }
+  var selectedProductForDetail by remember { mutableStateOf<com.example.model.Product?>(null) }
 
   Scaffold(
     topBar = {
@@ -161,7 +165,7 @@ fun HomeScreen(
       modifier = Modifier
         .fillMaxSize()
         .padding(paddingValues)
-        .background(Color(0xFFF4F6F8))
+        .background(Color(0xFFF0F7FF))
     ) {
       // Adaptive columns based on device orientation and screen width
       val columnsCount = when {
@@ -186,33 +190,127 @@ fun HomeScreen(
             .widthIn(max = 1200.dp)
             .padding(horizontal = 14.dp)
         ) {
-          // 1. Hero Graphic Banner (decoded off-main-thread via Coil for 60fps open)
-          item(span = { GridItemSpan(columnsCount) }, contentType = { "hero_banner" }) {
-            Card(
-              shape = RoundedCornerShape(16.dp),
-              elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp)
-            ) {
-              Box(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .height(heroHeight)
-              ) {
-                val heroRequest = remember(context) {
-                  ImageRequest.Builder(context)
-                    .data(R.drawable.hero_banner)
-                    .size(900, 450)
-                    .precision(Precision.INEXACT)
-                    .build()
+          // 1. Cool Premium Hero Card (Editable / Hideable from Admin Hub)
+          if (storeConfig.showHeroBanner) {
+            item(span = { GridItemSpan(columnsCount) }, contentType = { "hero_banner" }) {
+              if (storeConfig.heroBannerUrl.isNotBlank()) {
+                Card(
+                  shape = RoundedCornerShape(18.dp),
+                  elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+                ) {
+                  Box(modifier = Modifier.fillMaxWidth().height(heroHeight)) {
+                    val heroData = com.example.ui.components.rememberCoilData(storeConfig.heroBannerUrl)
+                    val heroRequest = remember(context, heroData) {
+                      ImageRequest.Builder(context)
+                        .data(heroData)
+                        .size(900, 450)
+                        .precision(Precision.INEXACT)
+                        .build()
+                    }
+                    AsyncImage(
+                      model = heroRequest,
+                      contentDescription = storeConfig.shopName,
+                      contentScale = ContentScale.Crop,
+                      modifier = Modifier.fillMaxSize()
+                    )
+                  }
                 }
-                AsyncImage(
-                  model = heroRequest,
-                  contentDescription = "अपना मार्केट - रायगढ़ से पुंजीपथरा",
-                  contentScale = ContentScale.Crop,
-                  modifier = Modifier.fillMaxSize()
-                )
+              } else {
+                // Modern Cool Glassmorphic Flipkart+Blinkit Hero Card with subtle pulse
+                Card(
+                  shape = RoundedCornerShape(18.dp),
+                  elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+                ) {
+                  Box(
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .background(
+                        androidx.compose.ui.graphics.Brush.linearGradient(
+                          listOf(Color(0xFF0284C7), Color(0xFF0369A1), Color(0xFF1E3A8A))
+                        )
+                      )
+                      .padding(16.dp)
+                  ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                      Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                      ) {
+                        Surface(
+                          color = Color(0xFFFDE047),
+                          shape = RoundedCornerShape(20.dp)
+                        ) {
+                          Text(
+                            text = "⚡ ${storeConfig.deliveryTiming}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF0F172A),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                          )
+                        }
+                        Surface(
+                          color = Color.White.copy(alpha = 0.18f),
+                          shape = RoundedCornerShape(20.dp)
+                        ) {
+                          Text(
+                            text = "🟢 LIVE STORE",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                          )
+                        }
+                      }
+                      Spacer(modifier = Modifier.height(10.dp))
+                      Text(
+                        text = storeConfig.shopName,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                      )
+                      Text(
+                        text = storeConfig.tagline,
+                        fontSize = 12.sp,
+                        color = Color(0xFFE0F2FE),
+                        modifier = Modifier.padding(top = 2.dp)
+                      )
+                      Spacer(modifier = Modifier.height(10.dp))
+                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(
+                          color = Color.White.copy(alpha = 0.16f),
+                          shape = RoundedCornerShape(8.dp)
+                        ) {
+                          Text(
+                            text = "🥬 100% ताज़ा",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                          )
+                        }
+                        Surface(
+                          color = Color.White.copy(alpha = 0.16f),
+                          shape = RoundedCornerShape(8.dp)
+                        ) {
+                          Text(
+                            text = "💰 मंडी से कम रेट",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                          )
+                        }
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -303,12 +401,75 @@ fun HomeScreen(
             )
           }
 
-          // 8. Myntra-Style Circular Category Story Strip
+          // 8. Myntra-Style Circular Category Story Strip (Dynamic + Custom Categories)
           item(span = { GridItemSpan(columnsCount) }) {
             CategoryStoryStrip(
               selectedCategory = selectedCategory,
-              onSelectCategory = { viewModel.selectedCategory.value = it }
+              onSelectCategory = {
+                viewModel.showWishlistOnly.value = false
+                viewModel.selectedCustomCategoryId.value = null
+                viewModel.selectedCategory.value = it
+              },
+              categoryImages = storeConfig.categoryImages,
+              customCategories = storeConfig.customCategories,
+              selectedCustomCategoryId = selectedCustomCategoryId,
+              onSelectCustomCategory = { ccId ->
+                viewModel.showWishlistOnly.value = false
+                viewModel.selectedCustomCategoryId.value = if (selectedCustomCategoryId == ccId) null else ccId
+              }
             )
+          }
+
+          // 8b. Flipkart-Style Quick Action Pills (Wishlist / Orders / Custom Request)
+          item(span = { GridItemSpan(columnsCount) }) {
+            LazyRow(
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+            ) {
+              item {
+                FilterChip(
+                  selected = showWishlistOnly,
+                  onClick = { viewModel.showWishlistOnly.value = !showWishlistOnly },
+                  label = {
+                    Text(
+                      text = "❤️ ${s(selectedLanguage, "पसंदीदा", "Saved", "পছন্দের")} (${wishlistIds.size})",
+                      fontSize = 11.sp,
+                      fontWeight = FontWeight.Bold
+                    )
+                  },
+                  colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = Color(0xFFFEE2E2),
+                    selectedLabelColor = Color(0xFFDC2626)
+                  )
+                )
+              }
+              item {
+                FilterChip(
+                  selected = false,
+                  onClick = { viewModel.navigateTo(Screen.ORDERS) },
+                  label = {
+                    Text(
+                      text = "📦 ${s(selectedLanguage, "मेरे ऑर्डर्स", "My Orders", "আমার অর্ডার")}",
+                      fontSize = 11.sp,
+                      fontWeight = FontWeight.Bold
+                    )
+                  }
+                )
+              }
+              item {
+                FilterChip(
+                  selected = false,
+                  onClick = { viewModel.navigateTo(Screen.CUSTOM_REQUEST) },
+                  label = {
+                    Text(
+                      text = "🛍️ ${s(selectedLanguage, "स्पेशल मँगवाएँ", "Custom Order", "বিশেষ অর্ডার")}",
+                      fontSize = 11.sp,
+                      fontWeight = FontWeight.Bold
+                    )
+                  }
+                )
+              }
+            }
           }
 
           // 9. Swipeable Trending & Best Deals Carousel (when viewing ALL & no search query)
@@ -345,6 +506,9 @@ fun HomeScreen(
                       product = product,
                       cart = cart,
                       isFestivalSaleActive = storeConfig.isFestivalSaleActive,
+                      isWishlisted = wishlistIds.contains(product.id),
+                      onToggleWishlist = { viewModel.toggleWishlist(product.id) },
+                      onClick = { selectedProductForDetail = product },
                       onAdd = { variant -> viewModel.addToCart(product, variant) },
                       onRemove = { cartKey -> viewModel.removeFromCart(cartKey) },
                       modifier = Modifier.width(164.dp)
@@ -435,6 +599,9 @@ fun HomeScreen(
                 product = product,
                 cart = cart,
                 isFestivalSaleActive = storeConfig.isFestivalSaleActive,
+                isWishlisted = wishlistIds.contains(product.id),
+                onToggleWishlist = { viewModel.toggleWishlist(product.id) },
+                onClick = { selectedProductForDetail = product },
                 onAdd = { variant -> viewModel.addToCart(product, variant) },
                 onRemove = { cartKey -> viewModel.removeFromCart(cartKey) }
               )
@@ -621,6 +788,18 @@ fun HomeScreen(
           Text(s(selectedLanguage, "बंद करें", "Close", "বন্ধ করুন"))
         }
       }
+    )
+  }
+
+  selectedProductForDetail?.let { detailProduct ->
+    com.example.ui.components.ProductDetailSheet(
+      product = detailProduct,
+      cart = cart,
+      isWishlisted = wishlistIds.contains(detailProduct.id),
+      onToggleWishlist = { viewModel.toggleWishlist(detailProduct.id) },
+      onAdd = { variant -> viewModel.addToCart(detailProduct, variant) },
+      onRemove = { cartKey -> viewModel.removeFromCart(cartKey) },
+      onDismiss = { selectedProductForDetail = null }
     )
   }
 }

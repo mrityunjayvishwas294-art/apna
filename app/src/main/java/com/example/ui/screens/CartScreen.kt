@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import com.example.data.LocalAppLanguage
+import com.example.data.s
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -190,18 +192,19 @@ fun CartScreen(
     viewModel.navigateTo(Screen.HOME)
   }
 
+  val lang = LocalAppLanguage.current
   Scaffold(
     topBar = {
       TopAppBar(
         title = {
           Column {
             Text(
-              text = "अपना मार्केट · चेकआउट",
+              text = s(lang, "अपना मार्केट · चेकआउट", "Apna Market · Checkout", "আপনা মার্কেট · চেকআউট"),
               fontWeight = FontWeight.Bold,
               fontSize = 16.sp
             )
             Text(
-              text = "डिलीवरी: ${selectedArea.name} (सुबह 8:00 AM)",
+              text = "${s(lang, "डिलीवरी", "Delivery", "ডেলিভারি")}: ${selectedArea.name} (${storeConfig.deliveryTiming})",
               fontSize = 11.sp,
               color = Color.White.copy(alpha = 0.85f)
             )
@@ -222,7 +225,7 @@ fun CartScreen(
         actions = {
           if (cartItems.isNotEmpty()) {
             TextButton(onClick = { viewModel.clearCart() }) {
-              Text("Clear", color = Color.White, fontWeight = FontWeight.Bold)
+              Text(s(lang, "खाली करें", "Clear", "খালি করুন"), color = Color.White, fontWeight = FontWeight.Bold)
             }
           }
         },
@@ -249,13 +252,13 @@ fun CartScreen(
           Text("🛒", fontSize = 56.sp)
           Spacer(modifier = Modifier.height(12.dp))
           Text(
-            text = "आपकी टोकरी खाली है",
+            text = s(lang, "आपकी टोकरी खाली है", "Your Cart is Empty", "আপনার কার্ট খালি"),
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF1F2937)
           )
           Text(
-            text = "सुबह 8 बजे ताज़ा सामान पाने के लिए कार्ट में आइटम जोड़ें।",
+            text = s(lang, "ताज़ा सामान पाने के लिए कार्ट में आइटम जोड़ें।", "Add items to your cart to place an order.", "অর্ডার করতে কার্টে পণ্য যোগ করুন।"),
             fontSize = 13.sp,
             color = Color.Gray,
             modifier = Modifier.padding(top = 4.dp, bottom = 18.dp)
@@ -1093,8 +1096,9 @@ fun CartScreen(
     )
   }
 
-  // Special Thank You Confirmation Dialog
+  // Special Thank You Confirmation Dialog with Magic Celebration
   confirmedOrder?.let { order ->
+    com.example.ui.components.MagicConfettiOverlay(visible = true)
     AlertDialog(
       onDismissRequest = {
         confirmedOrder = null

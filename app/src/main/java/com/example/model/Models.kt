@@ -18,6 +18,13 @@ enum class Category(val displayName: String, val hindiName: String, val emoji: S
   POOJA_SPECIAL("Pooja & Hawan", "पूजा सामग्री व कपूर", "🪔")
 }
 
+data class CustomCategory(
+  val id: String,
+  val name: String,
+  val hindiName: String,
+  val imageUrl: String = ""
+)
+
 data class ProductVariant(
   val label: String,
   val mrp: Double,
@@ -44,7 +51,8 @@ data class Product(
   val imageUrl: String? = null,
   val description: String = "",
   val isHeavy: Boolean = false,
-  val variants: List<ProductVariant> = emptyList()
+  val variants: List<ProductVariant> = emptyList(),
+  val customCategoryId: String = ""
 ) {
   val discountPercent: Int
     get() = if (mrp > ourPrice && mrp > 0) (((mrp - ourPrice) / mrp) * 100).toInt() else 0
@@ -176,5 +184,9 @@ data class StoreConfig(
   val festivalSaleHeading: String = "🪔 त्योहार महासेल & ऑफर्स",
   val festivalSaleSubtitle: String = "मंडी रेट से भी कम दाम · सीधे रायगढ़ से पुंजीपथरा आपके द्वार",
   val festivalDiscountBadge: String = "FLAT 15% - 40% OFF",
-  val welcomeMessage: String = "🙏 नमस्ते! आपका अपना मार्केट में दिल से स्वागत है। रायगढ़ से पुंजीपथरा तक हर सुबह 8:00 बजे ताज़ा, शुद्ध और भरोसेमंद सामान सीधे आपके द्वार पहुँचाना ही हमारा संकल्प है। — आपका मृत्युंजय विश्वास (MV)"
+  val welcomeMessage: String = "🙏 नमस्ते! आपका अपना मार्केट में दिल से स्वागत है। रायगढ़ से पुंजीपथरा तक हर सुबह 8:00 बजे ताज़ा, शुद्ध और भरोसेमंद सामान सीधे आपके द्वार पहुँचाना ही हमारा संकल्प है। — आपका मृत्युंजय विश्वास (MV)",
+  val heroBannerUrl: String = "",
+  val showHeroBanner: Boolean = true,
+  val categoryImages: Map<String, String> = emptyMap(),
+  val customCategories: List<CustomCategory> = emptyList()
 )

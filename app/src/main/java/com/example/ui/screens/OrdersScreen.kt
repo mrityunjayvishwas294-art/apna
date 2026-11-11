@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -21,6 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import com.example.data.LocalAppLanguage
+import com.example.data.s
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.QrCode
@@ -99,13 +102,14 @@ fun OrdersScreen(
     viewModel.navigateTo(Screen.HOME)
   }
 
+  val lang = LocalAppLanguage.current
   Scaffold(
     topBar = {
       TopAppBar(
         title = {
           Column {
             Text(
-              text = "मेरे ऑर्डर्स (${myOrders.size})",
+              text = "${s(lang, "मेरे ऑर्डर्स", "My Orders", "আমার অর্ডার")} (${myOrders.size})",
               fontWeight = FontWeight.Bold,
               fontSize = 16.sp
             )
@@ -173,13 +177,13 @@ fun OrdersScreen(
           Spacer(modifier = Modifier.width(10.dp))
           Column(modifier = Modifier.weight(1f)) {
             Text(
-              text = "आपके निजी ऑर्डर्स (100% गोपनीय)",
+              text = s(lang, "आपके निजी ऑर्डर्स (100% गोपनीय)", "Your Private Orders (100% Secure)", "আপনার ব্যক্তিগত অর্ডার (১০০% গোপনীয়)"),
               fontWeight = FontWeight.Bold,
               fontSize = 13.sp,
               color = Color(0xFFFCD34D)
             )
             Text(
-              text = "यहाँ केवल आपके द्वारा किए गए ऑर्डर्स ही दिखते हैं। अन्य ग्राहकों के ऑर्डर पूरी तरह गुप्त रखे जाते हैं।",
+              text = s(lang, "यहाँ केवल आपके द्वारा किए गए ऑर्डर्स ही दिखते हैं। अन्य ग्राहकों के ऑर्डर पूरी तरह गुप्त रखे जाते हैं।", "Only your own orders are visible here. Other customers' orders stay private.", "এখানে শুধুমাত্র আপনার নিজের অর্ডারই দেখা যাবে।"),
               fontSize = 11.sp,
               color = Color.White
             )
@@ -197,9 +201,9 @@ fun OrdersScreen(
           Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("📦", fontSize = 48.sp)
             Spacer(modifier = Modifier.height(10.dp))
-            Text("आपने अभी तक कोई ऑर्डर नहीं किया है", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(s(lang, "आपने अभी तक कोई ऑर्डर नहीं किया है", "No orders placed yet", "আপনি এখনো কোনো অর্ডার করেননি"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(
-              "रात 8:00 बजे से पहले ऑर्डर करें और अगली सुबह ठीक 8:00 बजे घर पर पाएँ!",
+              s(lang, "अभी ऑर्डर करें और समय पर ताज़ा सामान घर पर पाएँ!", "Order now for fast doorstep delivery!", "এখনই অর্ডার করুন এবং দ্রুত হোম ডেলিভারি পান!"),
               color = Color.Gray,
               fontSize = 12.sp,
               modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
@@ -208,7 +212,7 @@ fun OrdersScreen(
               onClick = { viewModel.navigateTo(Screen.HOME) },
               colors = ButtonDefaults.buttonColors(containerColor = JioMartBlue)
             ) {
-              Text("सामान खरीदें (Shop Now)")
+              Text(s(lang, "सामान खरीदें (Shop Now)", "Shop Now", "কেনাকাটা করুন"))
             }
           }
         }
@@ -268,6 +272,14 @@ fun OrdersScreen(
               },
               onRateAndTip = {
                 orderToRate = order
+              },
+              onReorder = {
+                order.items.forEach { cartItem ->
+                  repeat(cartItem.quantity) {
+                    viewModel.addToCart(cartItem.product)
+                  }
+                }
+                Toast.makeText(context, "ऑर्डर के सभी आइटम कार्ट में जोड़ दिए गए!", Toast.LENGTH_SHORT).show()
               }
             )
           }
@@ -276,6 +288,9 @@ fun OrdersScreen(
             Spacer(modifier = Modifier.height(24.dp))
           }
         }
+      }
+      if (myOrders.any { it.status == com.example.model.OrderStatus.DELIVERED }) {
+        com.example.ui.components.MagicConfettiOverlay(visible = true)
       }
     }
   }
@@ -442,6 +457,7 @@ fun OrderItemCard(
   onCallOwner: () -> Unit,
   onViewQr: () -> Unit,
   onRateAndTip: () -> Unit,
+  onReorder: () -> Unit = {},
   modifier: Modifier = Modifier
 ) {
   Card(
@@ -668,6 +684,17 @@ fun OrderItemCard(
         ) {
           Text("⭐ रेटिंग व डिलीवरी टिप दें (Rate & Tip)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0284C7))
         }
+      }
+
+      Spacer(modifier = Modifier.height(6.dp))
+
+      Button(
+        onClick = onReorder,
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFECFDF5), contentColor = PrimaryGreenDark),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth().height(36.dp).testTag("reorder_button_${order.id}")
+      ) {
+        Text("🔄 फिर से ऑर्डर करें (1-Tap Reorder)", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
       }
     }
   }

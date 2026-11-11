@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Phone
 import com.example.data.openLocationInMaps
+import com.example.model.CustomCategory
 import com.example.ui.components.rememberCoilData
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -141,7 +142,7 @@ fun AdminHubScreen(
   val riders by viewModel.riders.collectAsState()
 
   var selectedTab by remember { mutableIntStateOf(0) }
-  val tabTitles = listOf("उत्पाद व फोटो", "सेल व विज्ञापन", "डिलीवरी टाइमिंग", "8 AM ऑर्डर्स", "राइडर हायर", "कंट्रोल सेटिंग्स")
+  val tabTitles = listOf("उत्पाद व फोटो", "कैटेगरी", "सेल व विज्ञापन", "डिलीवरी टाइमिंग", "8 AM ऑर्डर्स", "राइडर हायर", "कंट्रोल सेटिंग्स")
 
   var showAddProductDialog by remember { mutableStateOf(false) }
   var productToEdit by remember { mutableStateOf<Product?>(null) }
@@ -228,7 +229,74 @@ fun AdminHubScreen(
             .fillMaxSize()
             .widthIn(max = 1000.dp)
         ) {
-          ScrollableTabRow(
+          // Live Business Summary & Store ON/OFF Bar
+      val totalRevenue = remember(orders) { orders.filter { it.status != OrderStatus.CANCELLED }.sumOf { it.grandTotal } }
+      val pendingCount = remember(orders) { orders.count { it.status == OrderStatus.RECEIVED || it.status == OrderStatus.MANDI_PROCUREMENT || it.status == OrderStatus.PACKED } }
+      val outOfStockCount = remember(products) { products.count { !it.inStock } }
+
+      Surface(
+        color = Color(0xFF0369A1),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            Surface(
+              color = Color.White.copy(alpha = 0.14f),
+              shape = RoundedCornerShape(8.dp),
+              modifier = Modifier.weight(1f)
+            ) {
+              Column(modifier = Modifier.padding(8.dp)) {
+                Text("कुल बिक्री", fontSize = 10.sp, color = Color(0xFFBAE6FD))
+                Text("₹${totalRevenue.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+              }
+            }
+            Surface(
+              color = Color.White.copy(alpha = 0.14f),
+              shape = RoundedCornerShape(8.dp),
+              modifier = Modifier.weight(1f)
+            ) {
+              Column(modifier = Modifier.padding(8.dp)) {
+                Text("पेंडिंग ऑर्डर", fontSize = 10.sp, color = Color(0xFFBAE6FD))
+                Text("$pendingCount", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFFFDE047))
+              }
+            }
+            Surface(
+              color = Color.White.copy(alpha = 0.14f),
+              shape = RoundedCornerShape(8.dp),
+              modifier = Modifier.weight(1f)
+            ) {
+              Column(modifier = Modifier.padding(8.dp)) {
+                Text("स्टॉक आउट", fontSize = 10.sp, color = Color(0xFFBAE6FD))
+                Text("$outOfStockCount / ${products.size}", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+              }
+            }
+          }
+          Spacer(modifier = Modifier.height(6.dp))
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Text(
+              text = if (storeConfig.isAcceptingOrders) "🟢 दुकान चालू है (ऑर्डर ले रहे हैं)" else "🔴 दुकान बंद है (ऑर्डर रुके हैं)",
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Bold,
+              color = Color.White
+            )
+            Switch(
+              checked = storeConfig.isAcceptingOrders,
+              onCheckedChange = { accepting ->
+                viewModel.updateStoreConfig(storeConfig.copy(isAcceptingOrders = accepting))
+              }
+            )
+          }
+        }
+      }
+
+      ScrollableTabRow(
             selectedTabIndex = selectedTab,
             containerColor = Color.White,
             contentColor = JioMartBlueDark,
@@ -265,7 +333,13 @@ fun AdminHubScreen(
               onDeleteProduct = { viewModel.deleteProduct(it) },
               onAddNew = { showAddProductDialog = true }
             )
-            1 -> OffersAndBannersTab(
+            1 -> com.example.ui.components.CategoryManagerTab(
+              storeConfig = storeConfig,
+              onUpdateCategoryImage = { key, url -> viewModel.updateCategoryImage(key, url) },
+              onAddCustomCategory = { n, hn, url -> viewModel.addCustomCategory(n, hn, url) },
+              onDeleteCustomCategory = { id -> viewModel.deleteCustomCategory(id) }
+            )
+            2 -> OffersAndBannersTab(
               storeConfig = storeConfig,
               banners = banners,
               onToggleFestivalSale = { active ->
@@ -278,23 +352,14 @@ fun AdminHubScreen(
               onDeleteBanner = { viewModel.deleteBanner(it) },
               onAddBanner = { showAddBannerDialog = true }
             )
-            2 -> DeliveryTimingAndScheduleTab(
+            3 -> DeliveryTimingAndScheduleTab(
               storeConfig = storeConfig,
-              onSave = { timing, cutoff, days, launchDays, deliveryFee, threshold, heavyFee ->
-                val updated = storeConfig.copy(
-                  deliveryTiming = timing,
-                  cutoffHourText = cutoff,
-                  deliveryScheduleDays = days,
-                  launchDaysRemaining = launchDays,
-                  launchDateText = if (launchDays > 0) "$launchDays दिन बाद $cutoff से बुकिंग" else "लाइव बुकिंग चालू है",
-                  deliveryFee = deliveryFee,
-                  advanceThreshold = threshold,
-                  heavyDeliveryFee = heavyFee
-                )
+              onSave = { updated ->
                 viewModel.updateStoreConfig(updated)
+                Toast.makeText(context, "दुकान, पोस्टर व टाइमिंग सेव हो गई!", Toast.LENGTH_SHORT).show()
               }
             )
-            3 -> OrdersManagementTab(
+            4 -> OrdersManagementTab(
               orders = orders,
               riders = riders,
               onStatusChange = { id, status -> viewModel.updateOrderStatus(id, status) },
@@ -303,7 +368,7 @@ fun AdminHubScreen(
               onCall = { viewModel.callPhone(context, it) },
               onWhatsApp = { phone, msg -> viewModel.openWhatsApp(context, phone, msg) }
             )
-            4 -> RidersManagementTab(
+            5 -> RidersManagementTab(
               riders = riders,
               orders = orders,
               onAddRider = { showAddRiderDialog = true },
@@ -312,7 +377,7 @@ fun AdminHubScreen(
               onCall = { viewModel.callPhone(context, it) },
               onWhatsApp = { phone, msg -> viewModel.openWhatsApp(context, phone, msg) }
             )
-            5 -> StoreSettingsTab(
+            6 -> StoreSettingsTab(
               storeConfig = storeConfig,
               onSave = { viewModel.updateStoreConfig(it) }
             )
@@ -326,6 +391,7 @@ fun AdminHubScreen(
   if (showAddProductDialog) {
     ProductEditorDialog(
       initialProduct = null,
+      customCategories = storeConfig.customCategories,
       onDismiss = { showAddProductDialog = false },
       onSave = { newProd ->
         viewModel.addProduct(newProd)
@@ -338,6 +404,7 @@ fun AdminHubScreen(
   productToEdit?.let { prod ->
     ProductEditorDialog(
       initialProduct = prod,
+      customCategories = storeConfig.customCategories,
       onDismiss = { productToEdit = null },
       onSave = { updated ->
         viewModel.updateProduct(updated)
@@ -378,13 +445,15 @@ fun ProductsManagementTab(
   onDeleteProduct: (String) -> Unit,
   onAddNew: () -> Unit
 ) {
-  val filtered = remember(products, searchQuery) {
-    if (searchQuery.isBlank()) products else {
-      products.filter {
-        it.name.contains(searchQuery, ignoreCase = true) ||
-            it.hindiName.contains(searchQuery, ignoreCase = true) ||
-            it.category.name.contains(searchQuery, ignoreCase = true)
-      }
+  var onlyOutOfStock by remember { mutableStateOf(false) }
+  val filtered = remember(products, searchQuery, onlyOutOfStock) {
+    products.filter {
+      val stockOk = !onlyOutOfStock || !it.inStock
+      val queryOk = searchQuery.isBlank() ||
+          it.name.contains(searchQuery, ignoreCase = true) ||
+          it.hindiName.contains(searchQuery, ignoreCase = true) ||
+          it.category.name.contains(searchQuery, ignoreCase = true)
+      stockOk && queryOk
     }
   }
 
@@ -397,7 +466,7 @@ fun ProductsManagementTab(
       OutlinedTextField(
         value = searchQuery,
         onValueChange = onSearchChange,
-        placeholder = { Text("उत्पाद खोजें (कुल: ${products.size})", fontSize = 12.sp) },
+        placeholder = { Text("उत्पाद खोजें (${products.size} · 10,000+ सपोर्ट)", fontSize = 12.sp) },
         leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null, tint = JioMartBlue) },
         singleLine = true,
         shape = RoundedCornerShape(10.dp),
@@ -419,7 +488,25 @@ fun ProductsManagementTab(
       }
     }
 
-    Spacer(modifier = Modifier.height(10.dp))
+    Spacer(modifier = Modifier.height(6.dp))
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      androidx.compose.material3.FilterChip(
+        selected = onlyOutOfStock,
+        onClick = { onlyOutOfStock = !onlyOutOfStock },
+        label = { Text("सिर्फ Stock Out दिखाएँ", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+      )
+      Text(
+        text = "दिख रहे हैं: ${filtered.size}",
+        fontSize = 11.sp,
+        color = Color(0xFF64748B)
+      )
+    }
+
+    Spacer(modifier = Modifier.height(6.dp))
 
     LazyColumn(
       verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -697,8 +784,12 @@ fun OffersAndBannersTab(
 @Composable
 fun DeliveryTimingAndScheduleTab(
   storeConfig: StoreConfig,
-  onSave: (String, String, String, Int, Double, Double, Double) -> Unit
+  onSave: (StoreConfig) -> Unit
 ) {
+  var shopName by remember { mutableStateOf(storeConfig.shopName) }
+  var tagline by remember { mutableStateOf(storeConfig.tagline) }
+  var heroBannerUrl by remember { mutableStateOf(storeConfig.heroBannerUrl) }
+  var showHeroBanner by remember { mutableStateOf(storeConfig.showHeroBanner) }
   var timing by remember { mutableStateOf(storeConfig.deliveryTiming) }
   var cutoff by remember { mutableStateOf(storeConfig.cutoffHourText) }
   var days by remember { mutableStateOf(storeConfig.deliveryScheduleDays) }
@@ -706,6 +797,27 @@ fun DeliveryTimingAndScheduleTab(
   var deliveryFee by remember { mutableStateOf(storeConfig.deliveryFee.toInt().toString()) }
   var threshold by remember { mutableStateOf(storeConfig.advanceThreshold.toInt().toString()) }
   var heavyFee by remember { mutableStateOf(storeConfig.heavyDeliveryFee.toInt().toString()) }
+
+  val tabContext = LocalContext.current
+  var pendingHeroCropUri by remember { mutableStateOf<Uri?>(null) }
+  val heroPicker = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.PickVisualMedia()
+  ) { uri ->
+    if (uri != null) pendingHeroCropUri = uri
+  }
+
+  pendingHeroCropUri?.let { uri ->
+    com.example.ui.components.ImageCropDialog(
+      sourceUri = uri,
+      defaultWideAspect = true,
+      onDismiss = { pendingHeroCropUri = null },
+      onCropped = { encoded ->
+        heroBannerUrl = encoded
+        pendingHeroCropUri = null
+        Toast.makeText(tabContext, "पोस्टर क्रॉप होकर सेट हो गया! नीचे सेव दबाएँ।", Toast.LENGTH_SHORT).show()
+      }
+    )
+  }
 
   LazyColumn(
     modifier = Modifier.fillMaxSize().padding(14.dp),
@@ -720,16 +832,91 @@ fun DeliveryTimingAndScheduleTab(
       ) {
         Column(modifier = Modifier.padding(14.dp)) {
           Text(
-            text = "⏰ डिलीवरी टाइमिंग व दिन शेड्यूल (Live Control)",
+            text = "🏪 दुकान का नाम, मुख्य पोस्टर व टाइमिंग (Full Control)",
             fontWeight = FontWeight.Bold,
             fontSize = 15.sp,
             color = JioMartBlueDark
           )
           Text(
-            text = "यहाँ बदलाव करते ही सभी ग्राहकों के ऐप में टाइमिंग और दिन तुरंत बदल जाएंगे।",
+            text = "यहाँ से आप होम स्क्रीन का मुख्य 'Fresh Indian Grocery' पोस्टर, दुकान का नाम, टैगलाइन और डिलीवरी टाइमिंग सब बदल सकते हैं।",
             fontSize = 11.sp,
             color = Color.Gray
           )
+
+          Spacer(modifier = Modifier.height(12.dp))
+
+          OutlinedTextField(
+            value = shopName,
+            onValueChange = { shopName = it },
+            label = { Text("दुकान का नाम (Shop Name)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          OutlinedTextField(
+            value = tagline,
+            onValueChange = { tagline = it },
+            label = { Text("टैगलाइन (Tagline)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(10.dp))
+
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Text(
+              text = "🖼️ मुख्य होम स्क्रीन पोस्टर दिखाएँ:",
+              fontWeight = FontWeight.Bold,
+              fontSize = 12.sp,
+              color = Color(0xFF1E293B)
+            )
+            Switch(checked = showHeroBanner, onCheckedChange = { showHeroBanner = it })
+          }
+          Spacer(modifier = Modifier.height(6.dp))
+          if (heroBannerUrl.isNotBlank()) {
+            val heroPrev = rememberCoilData(heroBannerUrl)
+            AsyncImage(
+              model = ImageRequest.Builder(tabContext).data(heroPrev).crossfade(true).build(),
+              contentDescription = "Hero Poster Preview",
+              contentScale = ContentScale.Crop,
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(110.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFFF1F5F9))
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+          }
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            Button(
+              onClick = {
+                heroPicker.launch(
+                  PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+              },
+              colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+              shape = RoundedCornerShape(8.dp),
+              modifier = Modifier.weight(1f)
+            ) {
+              Icon(imageVector = Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("गैलरी से पोस्टर चुनें (Crop)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+            if (heroBannerUrl.isNotBlank()) {
+              OutlinedButton(
+                onClick = { heroBannerUrl = "" },
+                shape = RoundedCornerShape(8.dp)
+              ) {
+                Icon(imageVector = Icons.Default.Delete, contentDescription = "Reset Poster", tint = TertiaryRed, modifier = Modifier.size(16.dp))
+              }
+            }
+          }
 
           Spacer(modifier = Modifier.height(14.dp))
 
@@ -855,7 +1042,22 @@ fun DeliveryTimingAndScheduleTab(
               val dFee = deliveryFee.toDoubleOrNull() ?: 60.0
               val th = threshold.toDoubleOrNull() ?: 500.0
               val hFee = heavyFee.toDoubleOrNull() ?: 20.0
-              onSave(timing, cutoff, days, lDays, dFee, th, hFee)
+              onSave(
+                storeConfig.copy(
+                  shopName = shopName.trim().ifBlank { storeConfig.shopName },
+                  tagline = tagline.trim().ifBlank { storeConfig.tagline },
+                  heroBannerUrl = heroBannerUrl.trim(),
+                  showHeroBanner = showHeroBanner,
+                  deliveryTiming = timing,
+                  cutoffHourText = cutoff,
+                  deliveryScheduleDays = days,
+                  launchDaysRemaining = lDays,
+                  launchDateText = if (lDays > 0) "$lDays दिन बाद $cutoff से बुकिंग" else "लाइव बुकिंग चालू है",
+                  deliveryFee = dFee,
+                  advanceThreshold = th,
+                  heavyDeliveryFee = hFee
+                )
+              )
             },
             colors = ButtonDefaults.buttonColors(containerColor = JioMartBlue),
             shape = RoundedCornerShape(8.dp),
@@ -1299,12 +1501,14 @@ fun StoreSettingsTab(
 @Composable
 fun ProductEditorDialog(
   initialProduct: Product?,
+  customCategories: List<CustomCategory> = emptyList(),
   onDismiss: () -> Unit,
   onSave: (Product) -> Unit
 ) {
   var name by remember { mutableStateOf(initialProduct?.name ?: "") }
   var hindiName by remember { mutableStateOf(initialProduct?.hindiName ?: "") }
   var category by remember { mutableStateOf(initialProduct?.category ?: Category.VEGETABLES) }
+  var customCategoryId by remember { mutableStateOf(initialProduct?.customCategoryId ?: "") }
   var unit by remember { mutableStateOf(initialProduct?.unit ?: "1 kg") }
   var mrp by remember { mutableStateOf(initialProduct?.mrp?.toInt()?.toString() ?: "50") }
   var ourPrice by remember { mutableStateOf(initialProduct?.ourPrice?.toInt()?.toString() ?: "40") }
@@ -1319,24 +1523,27 @@ fun ProductEditorDialog(
 
   var expandedCategory by remember { mutableStateOf(false) }
   val dialogContext = LocalContext.current
-  val dialogScope = rememberCoroutineScope()
+  var pendingProductCropUri by remember { mutableStateOf<Uri?>(null) }
 
   val galleryPickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.PickVisualMedia()
   ) { uri ->
     if (uri != null) {
-      dialogScope.launch {
-        val savedPath = withContext(Dispatchers.IO) {
-          savePickedImageToInternalStorage(dialogContext, uri)
-        }
-        if (savedPath != null) {
-          imageUrl = savedPath
-          Toast.makeText(dialogContext, "गैलरी से फ़ोटो सेट हो गई!", Toast.LENGTH_SHORT).show()
-        } else {
-          Toast.makeText(dialogContext, "फ़ोटो लोड करने में समस्या हुई", Toast.LENGTH_SHORT).show()
-        }
-      }
+      pendingProductCropUri = uri
     }
+  }
+
+  pendingProductCropUri?.let { uri ->
+    com.example.ui.components.ImageCropDialog(
+      sourceUri = uri,
+      defaultWideAspect = false,
+      onDismiss = { pendingProductCropUri = null },
+      onCropped = { encoded ->
+        imageUrl = encoded
+        pendingProductCropUri = null
+        Toast.makeText(dialogContext, "फ़ोटो क्रॉप होकर सेट हो गई!", Toast.LENGTH_SHORT).show()
+      }
+    )
   }
 
   AlertDialog(
@@ -1372,12 +1579,14 @@ fun ProductEditorDialog(
           )
         }
         item {
+          val selectedCustomCat = customCategories.find { it.id == customCategoryId }
+          val categoryDisplayText = selectedCustomCat?.let { "${it.hindiName} (${it.name})" } ?: category.hindiName
           ExposedDropdownMenuBox(
             expanded = expandedCategory,
             onExpandedChange = { expandedCategory = !expandedCategory }
           ) {
             OutlinedTextField(
-              value = category.hindiName,
+              value = categoryDisplayText,
               onValueChange = {},
               readOnly = true,
               label = { Text("श्रेणी (Category)") },
@@ -1395,9 +1604,22 @@ fun ProductEditorDialog(
                   text = { Text("${cat.hindiName} (${cat.displayName})") },
                   onClick = {
                     category = cat
+                    customCategoryId = ""
                     expandedCategory = false
                   }
                 )
+              }
+              if (customCategories.isNotEmpty()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                customCategories.forEach { cCat ->
+                  DropdownMenuItem(
+                    text = { Text("✨ ${cCat.hindiName} (${cCat.name})") },
+                    onClick = {
+                      customCategoryId = cCat.id
+                      expandedCategory = false
+                    }
+                  )
+                }
               }
             }
           }
@@ -1424,7 +1646,7 @@ fun ProductEditorDialog(
           OutlinedTextField(
             value = unit,
             onValueChange = { unit = it },
-            label = { Text("इकाई / Unit (उदा: 1 kg, 500g, 1L, 1 pkt)") },
+            label = { Text("इकाई / वजन खुद लिखें (उदा: 700 gm, 500 gm, 1 kg, 2 Ltr)") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
           )
@@ -1692,7 +1914,8 @@ fun ProductEditorDialog(
             imageUrl = imageUrl.trim().takeIf { it.isNotBlank() },
             description = initialProduct?.description ?: "ताज़ा एवं शुद्ध सामान - रायगढ़ से पुंजीपथरा",
             isHeavy = initialProduct?.isHeavy ?: false,
-            variants = variants
+            variants = variants,
+            customCategoryId = customCategoryId
           )
           onSave(p)
         },
@@ -1721,24 +1944,27 @@ fun BannerEditorDialog(
   var mediaUrl by remember { mutableStateOf("") }
   var isFestival by remember { mutableStateOf(false) }
   val dialogContext = LocalContext.current
-  val bannerScope = rememberCoroutineScope()
+  var pendingBannerCropUri by remember { mutableStateOf<Uri?>(null) }
 
   val bannerMediaPicker = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.PickVisualMedia()
   ) { uri ->
     if (uri != null) {
-      bannerScope.launch {
-        val savedPath = withContext(Dispatchers.IO) {
-          savePickedImageToInternalStorage(dialogContext, uri)
-        }
-        if (savedPath != null) {
-          mediaUrl = savedPath
-          Toast.makeText(dialogContext, "बैनर फ़ोटो / GIF सेट हो गया!", Toast.LENGTH_SHORT).show()
-        } else {
-          Toast.makeText(dialogContext, "बैनर लोड करने में समस्या हुई", Toast.LENGTH_SHORT).show()
-        }
-      }
+      pendingBannerCropUri = uri
     }
+  }
+
+  pendingBannerCropUri?.let { uri ->
+    com.example.ui.components.ImageCropDialog(
+      sourceUri = uri,
+      defaultWideAspect = true,
+      onDismiss = { pendingBannerCropUri = null },
+      onCropped = { encoded ->
+        mediaUrl = encoded
+        pendingBannerCropUri = null
+        Toast.makeText(dialogContext, "बैनर क्रॉप होकर सेट हो गया!", Toast.LENGTH_SHORT).show()
+      }
+    )
   }
 
   AlertDialog(
@@ -1790,12 +2016,40 @@ fun BannerEditorDialog(
           Spacer(modifier = Modifier.width(6.dp))
           Text("गैलरी से GIF / फ़ोटो चुनें", fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
+        if (mediaUrl.isNotBlank()) {
+          val bannerPreviewModel = rememberCoilData(mediaUrl)
+          AsyncImage(
+            model = ImageRequest.Builder(dialogContext)
+              .data(bannerPreviewModel)
+              .crossfade(true)
+              .build(),
+            contentDescription = "Banner Preview",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(90.dp)
+              .clip(RoundedCornerShape(8.dp))
+              .background(Color(0xFFF1F5F9))
+          )
+        }
         OutlinedTextField(
           value = mediaUrl,
           onValueChange = { mediaUrl = it },
           label = { Text("बैनर GIF / इमेज लिंक (वैकल्पिक)") },
           placeholder = { Text("https://... (.gif, .jpg, .png)") },
           singleLine = true,
+          trailingIcon = {
+            if (mediaUrl.isNotBlank()) {
+              IconButton(onClick = { mediaUrl = "" }) {
+                Icon(
+                  imageVector = Icons.Default.Delete,
+                  contentDescription = "फ़ोटो हटाएं",
+                  tint = TertiaryRed,
+                  modifier = Modifier.size(18.dp)
+                )
+              }
+            }
+          },
           modifier = Modifier.fillMaxWidth()
         )
         Row(

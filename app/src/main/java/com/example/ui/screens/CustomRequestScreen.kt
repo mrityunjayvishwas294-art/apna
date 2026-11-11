@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import com.example.data.LocalAppLanguage
+import com.example.data.s
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Phone
@@ -86,18 +88,19 @@ fun CustomRequestScreen(
     viewModel.navigateTo(Screen.HOME)
   }
 
+  val lang = LocalAppLanguage.current
   Scaffold(
     topBar = {
       TopAppBar(
         title = {
           Column {
             Text(
-              text = "कुछ और मँगाना है? (Custom Request)",
+              text = s(lang, "कुछ और मँगाना है? (Custom Request)", "Custom Item Request", "অন্য কিছু আনতে চান? (Custom Request)"),
               fontWeight = FontWeight.Bold,
               fontSize = 16.sp
             )
             Text(
-              text = "रायगढ़ बाज़ार ➔ पुंजीपथरा (सुबह 8:00 AM डिलीवरी)",
+              text = "${s(lang, "डिलीवरी", "Delivery", "ডেলিভারি")}: ${storeConfig.deliveryTiming}",
               fontSize = 11.sp,
               color = Color.White.copy(alpha = 0.85f)
             )

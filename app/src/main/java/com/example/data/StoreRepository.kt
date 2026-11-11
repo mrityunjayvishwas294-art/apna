@@ -7,6 +7,7 @@ import com.example.model.BannerAd
 import com.example.model.CartItem
 import com.example.model.Category
 import com.example.model.CorridorArea
+import com.example.model.CustomCategory
 import com.example.model.CustomItemRequest
 import com.example.model.Order
 import com.example.model.OrderStatus
@@ -61,6 +62,21 @@ class StoreRepository(
   fun saveLanguage(lang: AppLanguage) {
     prefs.edit().putString("app_language", lang.code).apply()
   }
+
+  private val _wishlistIds = MutableStateFlow<Set<String>>(
+    prefs.getStringSet("wishlist_ids", emptySet())?.toSet() ?: emptySet()
+  )
+  val wishlistIds: StateFlow<Set<String>> = _wishlistIds.asStateFlow()
+
+  fun toggleWishlist(productId: String) {
+    val current = _wishlistIds.value.toMutableSet()
+    if (!current.add(productId)) current.remove(productId)
+    _wishlistIds.value = current
+    prefs.edit().putStringSet("wishlist_ids", current).apply()
+  }
+
+  private val lastKnownOrderStatuses = mutableMapOf<String, OrderStatus>()
+  private var ordersSnapshotInitialized = false
 
   private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val listeners = mutableListOf<ListenerRegistration>()
@@ -201,6 +217,45 @@ class StoreRepository(
         val remote = snapshot.documents
           .mapNotNull { docToOrder(it, user.uid) }
           .sortedByDescending { it.createdAt }
+
+        if (ordersSnapshotInitialized) {
+          remote.forEach { order ->
+            val prevStatus = lastKnownOrderStatuses[order.id]
+            if (admin && prevStatus == null) {
+              val payInfo = if (order.advancePaid > 0 || order.paymentMethod.contains("UPI", true)) {
+                "पेमेंट: ${order.paymentMethod} ${if (order.upiTransactionRef.isNotBlank()) "(UTR: ${order.upiTransactionRef})" else ""}"
+              } else {
+                order.paymentMethod
+              }
+              NotificationHelper.showOrderNotification(
+                context = context,
+                title = "💰 नया ऑर्डर व पेमेंट सूचना! ₹${order.grandTotal.toInt()}",
+                message = "${order.customerName} (${order.area}) • $payInfo",
+                notificationId = order.id.hashCode()
+              )
+            } else if (!admin && prevStatus != null && prevStatus != order.status) {
+              val msg = when (order.status) {
+                OrderStatus.PACKED -> "🎉 आपका ऑर्डर #${order.id.takeLast(5)} पैक होकर तैयार है!"
+                OrderStatus.OUT_FOR_8AM -> "🛵 राइडर आपका ऑर्डर #${order.id.takeLast(5)} लेकर निकल गया है!"
+                OrderStatus.DELIVERED -> "✅ ऑर्डर #${order.id.takeLast(5)} डिलीवर हो गया! अपना मार्केट से जुड़ने के लिए धन्यवाद!"
+                OrderStatus.MANDI_PROCUREMENT -> "🛒 आपके ऑर्डर #${order.id.takeLast(5)} का ताज़ा सामान खरीदा जा रहा है।"
+                else -> null
+              }
+              if (msg != null) {
+                NotificationHelper.showOrderNotification(
+                  context = context,
+                  title = "अपना मार्केट · ऑर्डर अपडेट",
+                  message = msg,
+                  notificationId = order.id.hashCode()
+                )
+              }
+            }
+          }
+        }
+        lastKnownOrderStatuses.clear()
+        remote.forEach { lastKnownOrderStatuses[it.id] = it.status }
+        ordersSnapshotInitialized = true
+
         _orders.value = remote
         saveOrders(remote)
       }
@@ -809,7 +864,8 @@ class StoreRepository(
     "isHeavy" to p.isHeavy,
     "variants" to p.variants.map { v ->
       mapOf("label" to v.label, "mrp" to v.mrp, "ourPrice" to v.ourPrice)
-    }
+    },
+    "customCategoryId" to p.customCategoryId
   )
 
   private fun docToProduct(doc: DocumentSnapshot): Product? {
@@ -840,7 +896,8 @@ class StoreRepository(
       imageUrl = doc.getString("imageUrl")?.takeIf { it.isNotBlank() },
       description = doc.getString("description") ?: "",
       isHeavy = doc.getBoolean("isHeavy") ?: false,
-      variants = variants
+      variants = variants,
+      customCategoryId = doc.getString("customCategoryId") ?: ""
     )
   }
 
@@ -1073,12 +1130,33 @@ class StoreRepository(
     "festivalSaleSubtitle" to c.festivalSaleSubtitle,
     "festivalDiscountBadge" to c.festivalDiscountBadge,
     "welcomeMessage" to c.welcomeMessage,
+    "heroBannerUrl" to c.heroBannerUrl,
+    "showHeroBanner" to c.showHeroBanner,
+    "categoryImages" to c.categoryImages,
+    "customCategories" to c.customCategories.map { cc ->
+      mapOf("id" to cc.id, "name" to cc.name, "hindiName" to cc.hindiName, "imageUrl" to cc.imageUrl)
+    },
     "updatedAt" to FieldValue.serverTimestamp()
   )
 
   private fun docToStoreConfig(doc: DocumentSnapshot): StoreConfig? {
     val shopName = doc.getString("shopName") ?: return null
     val def = StoreConfig()
+    val rawCatImgs = (doc.get("categoryImages") as? Map<*, *>)?.entries
+      ?.mapNotNull { (k, v) -> if (k is String && v is String) k to v else null }
+      ?.toMap() ?: emptyMap()
+    val rawCustomCats = (doc.get("customCategories") as? List<*>)?.mapNotNull { item ->
+      val m = item as? Map<*, *> ?: return@mapNotNull null
+      val id = m["id"] as? String ?: return@mapNotNull null
+      val name = m["name"] as? String ?: return@mapNotNull null
+      CustomCategory(
+        id = id,
+        name = name,
+        hindiName = (m["hindiName"] as? String) ?: name,
+        imageUrl = (m["imageUrl"] as? String) ?: ""
+      )
+    } ?: emptyList()
+
     return StoreConfig(
       shopName = shopName,
       tagline = doc.getString("tagline") ?: def.tagline,
@@ -1106,7 +1184,11 @@ class StoreRepository(
       festivalSaleHeading = doc.getString("festivalSaleHeading") ?: def.festivalSaleHeading,
       festivalSaleSubtitle = doc.getString("festivalSaleSubtitle") ?: def.festivalSaleSubtitle,
       festivalDiscountBadge = doc.getString("festivalDiscountBadge") ?: def.festivalDiscountBadge,
-      welcomeMessage = doc.getString("welcomeMessage") ?: def.welcomeMessage
+      welcomeMessage = doc.getString("welcomeMessage") ?: def.welcomeMessage,
+      heroBannerUrl = doc.getString("heroBannerUrl") ?: def.heroBannerUrl,
+      showHeroBanner = doc.getBoolean("showHeroBanner") ?: def.showHeroBanner,
+      categoryImages = rawCatImgs,
+      customCategories = rawCustomCats
     )
   }
 
@@ -1141,6 +1223,7 @@ class StoreRepository(
               )
             }
             put("variants", variantsArr)
+            put("customCategoryId", p.customCategoryId)
           }
           jsonArray.put(obj)
         }
@@ -1190,7 +1273,8 @@ class StoreRepository(
             imageUrl = obj.optString("imageUrl").takeIf { it.isNotBlank() },
             description = obj.optString("description", ""),
             isHeavy = obj.optBoolean("isHeavy", false),
-            variants = variantsList
+            variants = variantsList,
+            customCategoryId = obj.optString("customCategoryId", "")
           )
         )
       }
@@ -1494,6 +1578,23 @@ class StoreRepository(
         put("festivalSaleSubtitle", config.festivalSaleSubtitle)
         put("festivalDiscountBadge", config.festivalDiscountBadge)
         put("welcomeMessage", config.welcomeMessage)
+        put("heroBannerUrl", config.heroBannerUrl)
+        put("showHeroBanner", config.showHeroBanner)
+        val catImgObj = JSONObject()
+        config.categoryImages.forEach { (k, v) -> catImgObj.put(k, v) }
+        put("categoryImages", catImgObj)
+        val ccArr = JSONArray()
+        config.customCategories.forEach { cc ->
+          ccArr.put(
+            JSONObject().apply {
+              put("id", cc.id)
+              put("name", cc.name)
+              put("hindiName", cc.hindiName)
+              put("imageUrl", cc.imageUrl)
+            }
+          )
+        }
+        put("customCategories", ccArr)
       }
       prefs.edit().putString("store_config_v5", obj.toString()).apply()
     } catch (_: Exception) {}
@@ -1504,6 +1605,31 @@ class StoreRepository(
     return try {
       val obj = JSONObject(raw)
       val pin = obj.optString("adminPin", "5520").let { if (it == "8982") "5520" else it }
+      val catImgMap = mutableMapOf<String, String>()
+      obj.optJSONObject("categoryImages")?.let { catObj ->
+        catObj.keys().forEach { k ->
+          val v = catObj.optString(k, "")
+          if (v.isNotBlank()) catImgMap[k] = v
+        }
+      }
+      val customCats = mutableListOf<CustomCategory>()
+      obj.optJSONArray("customCategories")?.let { arr ->
+        for (i in 0 until arr.length()) {
+          val cObj = arr.optJSONObject(i) ?: continue
+          val cid = cObj.optString("id", "")
+          val cname = cObj.optString("name", "")
+          if (cid.isNotBlank() && cname.isNotBlank()) {
+            customCats.add(
+              CustomCategory(
+                id = cid,
+                name = cname,
+                hindiName = cObj.optString("hindiName", cname),
+                imageUrl = cObj.optString("imageUrl", "")
+              )
+            )
+          }
+        }
+      }
       StoreConfig(
         shopName = obj.optString("shopName", "अपना मार्केट"),
         tagline = obj.optString("tagline", "रायगढ़ ➔ पुंजीपथरा · सुपरफास्ट होम डिलीवरी"),
@@ -1531,7 +1657,11 @@ class StoreRepository(
         festivalSaleHeading = obj.optString("festivalSaleHeading", "🪔 त्योहार महासेल & ऑफर्स"),
         festivalSaleSubtitle = obj.optString("festivalSaleSubtitle", "मंडी रेट से भी कम दाम · सीधे रायगढ़ से पुंजीपथरा आपके द्वार"),
         festivalDiscountBadge = obj.optString("festivalDiscountBadge", "FLAT 15% - 40% OFF"),
-        welcomeMessage = obj.optString("welcomeMessage", StoreConfig().welcomeMessage)
+        welcomeMessage = obj.optString("welcomeMessage", StoreConfig().welcomeMessage),
+        heroBannerUrl = obj.optString("heroBannerUrl", ""),
+        showHeroBanner = obj.optBoolean("showHeroBanner", true),
+        categoryImages = catImgMap,
+        customCategories = customCats
       )
     } catch (_: Exception) {
       StoreConfig()

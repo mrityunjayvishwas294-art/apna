@@ -21,6 +21,7 @@ import com.example.model.BannerAd
 import com.example.model.CartItem
 import com.example.model.Category
 import com.example.model.CorridorArea
+import com.example.model.CustomCategory
 import com.example.model.CustomItemRequest
 import com.example.model.Order
 import com.example.model.OrderStatus
@@ -95,20 +96,61 @@ class StoreViewModel(application: Application) : AndroidViewModel(application) {
   val storeConfig: StateFlow<StoreConfig> = repository.storeConfig
   val banners: StateFlow<List<BannerAd>> = repository.banners
   val riders: StateFlow<List<Rider>> = repository.riders
+  val wishlistIds: StateFlow<Set<String>> = repository.wishlistIds
 
   val searchQuery = MutableStateFlow("")
   val selectedCategory = MutableStateFlow(Category.ALL)
+  val selectedCustomCategoryId = MutableStateFlow<String?>(null)
+  val showWishlistOnly = MutableStateFlow(false)
+
+  fun toggleWishlist(productId: String) = repository.toggleWishlist(productId)
+
+  fun updateCategoryImage(categoryKey: String, imageUrl: String) {
+    val cur = storeConfig.value
+    val nextMap = cur.categoryImages.toMutableMap()
+    if (imageUrl.isBlank()) nextMap.remove(categoryKey) else nextMap[categoryKey] = imageUrl
+    updateStoreConfig(cur.copy(categoryImages = nextMap))
+  }
+
+  fun addCustomCategory(name: String, hindiName: String, imageUrl: String) {
+    val cur = storeConfig.value
+    val newCat = CustomCategory(
+      id = "ccat_${System.currentTimeMillis()}",
+      name = name.trim(),
+      hindiName = hindiName.trim().ifBlank { name.trim() },
+      imageUrl = imageUrl.trim()
+    )
+    updateStoreConfig(cur.copy(customCategories = cur.customCategories + newCat))
+  }
+
+  fun deleteCustomCategory(id: String) {
+    val cur = storeConfig.value
+    updateStoreConfig(cur.copy(customCategories = cur.customCategories.filterNot { it.id == id }))
+  }
 
   // Derived filtered products
   val filteredProducts: StateFlow<List<Product>> =
-    combine(products, searchQuery, selectedCategory) { prodList, query, cat ->
+    combine(products, searchQuery, selectedCategory, selectedCustomCategoryId, showWishlistOnly, wishlistIds) { arr ->
+      @Suppress("UNCHECKED_CAST")
+      val prodList = arr[0] as List<Product>
+      val query = arr[1] as String
+      val cat = arr[2] as Category
+      val customCatId = arr[3] as String?
+      val wishOnly = arr[4] as Boolean
+      @Suppress("UNCHECKED_CAST")
+      val wishIds = arr[5] as Set<String>
+
       prodList.filter { product ->
-        val matchesCategory = (cat == Category.ALL || product.category == cat)
+        val matchesCategory = when {
+          customCatId != null -> product.customCategoryId == customCatId
+          else -> (cat == Category.ALL || product.category == cat)
+        }
+        val matchesWish = !wishOnly || wishIds.contains(product.id)
         val matchesQuery = query.isBlank() ||
             product.name.contains(query, ignoreCase = true) ||
             product.hindiName.contains(query, ignoreCase = true) ||
             product.description.contains(query, ignoreCase = true)
-        matchesCategory && matchesQuery
+        matchesCategory && matchesWish && matchesQuery
       }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 

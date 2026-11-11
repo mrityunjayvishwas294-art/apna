@@ -1,12 +1,17 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -120,8 +125,23 @@ fun EightAmMartApp(viewModel: StoreViewModel = viewModel()) {
   val selectedLanguage by viewModel.selectedLanguage.collectAsState()
   var showWelcomeOverlay by remember { mutableStateOf(true) }
   var progress by remember { mutableFloatStateOf(1f) }
+  val appContext = androidx.compose.ui.platform.LocalContext.current
+  val notifPermissionLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.RequestPermission()
+  ) { }
 
   LaunchedEffect(currentUser) {
+    if (currentUser != null) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val granted = ContextCompat.checkSelfPermission(
+          appContext,
+          Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+          notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+      }
+    }
     if (currentUser != null && showWelcomeOverlay) {
       val totalMs = 5000L
       val stepMs = 50L
